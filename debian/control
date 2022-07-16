@@ -1,0 +1,28 @@
+Source: lomiricontext
+Section: libs
+Priority: optional
+Maintainer: UBports Developers <developers@ubports.com>
+Build-Depends: cmake,
+               cmake-extras (>= 0.10),
+               debhelper (>= 9),
+               libgles2-mesa-dev,
+               libhybris-dev,
+               pkg-config,
+               qt5-default,
+               qtbase5-dev,
+               qtbase5-private-dev,
+               qtdeclarative5-dev,
+               qtdeclarative5-private-dev,
+Standards-Version: 3.9.5
+Homepage: https://gitlab.com/ubports/development/core/lomiricontext
+
+Package: lomiricontext
+Architecture: any
+Multi-Arch: same
+Depends: ${misc:Depends},
+         ${shlibs:Depends},
+Description: A Qt Scene Graph context plugin for even better Lomiri integration
+ lomiricontext enhances the capabilities of the Qt Scene Graph for both the
+ Lomiri shell and its applications by hooking into Qt's hardware integration.
+ .
+ This package provides the lomiricontext Qt Scene Graph plugin.

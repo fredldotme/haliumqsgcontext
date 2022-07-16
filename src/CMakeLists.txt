@@ -1,0 +1,37 @@
+project(lomiricontext)
+
+include_directories(
+    SYSTEM
+
+    ${EGL_INCLUDE_DIRS}
+    ${GLES_INCLUDE_DIRS}
+    ${ANDROID_INCLUDE_DIRS}
+    ${Qt5Gui_PRIVATE_INCLUDE_DIRS}
+    ${Qt5Quick_PRIVATE_INCLUDE_DIRS}
+)
+
+add_library(
+    lomiricontext
+    SHARED
+
+    plugin.cpp
+    context.cpp
+    animationdriver.cpp
+    rendercontext.cpp
+    gralloctexture.cpp
+)
+
+target_link_libraries(
+    lomiricontext
+
+    ${EGL_LDFLAGS}
+    ${EGL_LIBS}
+    ${GLES_LDFLAGS}
+    ${GLES_LIBS}
+
+    -lui
+    Qt5::Core
+    Qt5::Quick
+)
+
+install(TARGETS lomiricontext LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}/qt5/plugins/scenegraph")
