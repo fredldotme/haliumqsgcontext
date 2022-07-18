@@ -154,10 +154,10 @@ QSGTexture* GrallocTextureCreator::createTexture(const QImage& image, ShaderCach
         const int dbpl = stride * 4;
         char* data = (char*)vmemAddr;
 
-        if (alphaBehavior == AlphaBehavior_None) {
-            int bpl = qMin(dbpl, image.bytesPerLine());
-            for (int y = 0; y < height; ++y)
-                memcpy(data + y * dbpl, image.constScanLine(y), bpl);
+        for (int i = 0; i < height; i++) {
+            void* dst = (vmemAddr + (stride * numChannels * i));
+            const void* src = (sourceAddr + (bytesPerLine * i));
+            memcpy(dst, src, bytesPerLine);
         }
         graphic_buffer_unlock(handle);
 
