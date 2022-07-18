@@ -43,11 +43,12 @@ bool RenderContext::init() const
 QSGTexture* RenderContext::createTexture(const QImage &image, uint flags) const
 {
     QSGTexture* texture = nullptr;
-
+#if 0
     static bool colorShadersBuilt = init();
 
     if (!colorShadersBuilt)
         goto default_method;
+#endif
 
     texture = GrallocTextureCreator::createTexture(image, m_cachedShaders);
     if (texture)
@@ -62,52 +63,45 @@ bool RenderContext::compileColorShaders() const
     QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
 
     for (int i = (int)ColorShader::ColorShader_First; i < ColorShader::ColorShader_Count; i++) {
-        GLuint vertex = glCreateShader(GL_VERTEX_SHADER);
-        glShaderSource(vertex, 1, &COLOR_CONVERSION_VERTEX, nullptr);
-        glCompileShader(vertex);
+        auto program = std::make_shared<QOpenGLShaderProgram>();
+        bool success = false;
 
-        GLint compiledShader;
-        glGetShaderiv(vertex, GL_COMPILE_STATUS, &compiledShader);
-        if (compiledShader != GL_TRUE) {
-            qWarning() << "Failed to compile vertex shader" << i << "hence using defaults.";
+        success = program->addCacheableShaderFromSourceCode(QOpenGLShader::Vertex, COLOR_CONVERSION_VERTEX);
+
+        if (!success) {
+            qWarning() << "Failed to compile vertex shader hence using defaults. Reason:";
+            qWarning() << program->log();
             return false;
         }
 
-        GLuint shader = gl->glCreateShader(GL_FRAGMENT_SHADER);
-        switch(i) {
+        switch (i) {
         case ColorShader_ArgbToRgba:
-            gl->glShaderSource(shader, 1, &ARGB32_TO_RGBA8888, nullptr);
+            success = program->addCacheableShaderFromSourceCode(QOpenGLShader::Fragment, ARGB32_TO_RGBA8888);
             break;
         case ColorShader_FixupRgb32:
-            gl->glShaderSource(shader, 1, &FIXUP_RGB32, nullptr);
+            success = program->addCacheableShaderFromSourceCode(QOpenGLShader::Fragment, FIXUP_RGB32);
             break;
         default:
             qWarning() << "No color shader type" << i;
             break;
         }
 
-        gl->glCompileShader(shader);
-
-        glGetShaderiv(shader, GL_COMPILE_STATUS, &compiledShader);
-        if (compiledShader != GL_TRUE) {
-            qWarning() << "Failed to compile fragment shader" << i << "hence using defaults.";
+        if (!success) {
+            qWarning() << "Failed to compile fragment shader" << i << "hence using defaults. Reason:";
+            qWarning() << program->log();
             return false;
         }
 
-        GLuint program = gl->glCreateProgram();
-
-        gl->glAttachShader(program, vertex);
-        gl->glAttachShader(program, shader);
-        gl->glLinkProgram(program);
-
-        GLint linkedProgram;
-        gl->glGetProgramiv(program, GL_LINK_STATUS, &linkedProgram);
-        if (linkedProgram != GL_TRUE) {
-            qWarning() << "Failed to link shader" << i << "hence using defaults.";
+        success = program->link();
+        if (!success) {
+            qWarning() << "Failed to link shader" << i << "hence using defaults. Reason:";
+            qWarning() << program->log();
             return false;
         }
 
-        m_cachedShaders[(ColorShader)i] = ShaderBundle{vertex, shader, program};
+        ShaderBundle bundle{program};
+
+        m_cachedShaders[(ColorShader)i] = bundle;
     }
     return true;
 }

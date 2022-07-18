@@ -25,6 +25,9 @@
 
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
+#include <QOpenGLShaderProgram>
+
+#include <memory>
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -45,12 +48,18 @@ enum ColorShader {
     ColorShader_Count =  + ColorShader_Last + 1
 };
 
+enum AlphaBehavior {
+    AlphaBehavior_None = 0,
+    AlphaBehavior_Premultiply,
+    AlphaBehavior_Repremultiply
+};
+
 static const GLchar* COLOR_CONVERSION_VERTEX = {
     "#version 100\n"
-    "attribute vec4 position;\n"
+    "attribute vec2 position;\n"
     "\n"
     "void main() {\n"
-    "   gl_Position = position;\n"
+    "   gl_Position = vec4(position, 0.0, 1.0);\n"
     "}\n"
 };
 
@@ -59,8 +68,7 @@ static const GLchar* ARGB32_TO_RGBA8888 = {
     "uniform sampler2D tex;\n"
     "\n"
     "void main() {\n"
-    "    vec4 c = texture2D(tex, gl_FragCoord.xy);\n"
-    "    gl_FragColor.rgba = vec4(c.a, c.r, c.g, c.b);\n"
+    "    gl_FragColor.rgba = texture2D(tex, gl_FragCoord.xy).argb;\n"
     "}\n"
 };
 
@@ -74,10 +82,9 @@ static const GLchar* FIXUP_RGB32 = {
 };
 
 struct ShaderBundle {
-    GLuint vertex;
-    GLuint fragment;
-    GLuint program;
+    std::shared_ptr<QOpenGLShaderProgram> program;
 };
+
 typedef std::map<ColorShader, ShaderBundle> ShaderCache;
 
 class GrallocTexture;
@@ -89,7 +96,7 @@ public:
 private:
     static uint32_t convertUsage(const QImage& image);
     static uint32_t convertLockUsage(const QImage& image);
-    static int convertFormat(const QImage& image, int& numChannels, ColorShader& conversionShader);
+    static int convertFormat(const QImage& image, int& numChannels, ColorShader& conversionShader, AlphaBehavior& premultiply);
 };
 
 class GrallocTexture : public QSGTexture
@@ -109,8 +116,7 @@ private:
     GrallocTexture(struct graphic_buffer* handle, const QSize& size, const bool& hasAlphaChannel, ShaderBundle conversionShader);
     ~GrallocTexture();
 
-    void preprocess(QOpenGLFunctions* gl, GLint* tex, GLint* prog) const;
-    void postprocess(QOpenGLFunctions* gl, GLint tex, GLint prog) const;
+    void renderShader(QOpenGLFunctions* gl) const;
 
     PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR;
     PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR;
@@ -119,11 +125,11 @@ private:
     struct graphic_buffer* m_handle;
     EGLImageKHR m_image;
     GLuint mutable m_texture;
-    GLuint mutable m_fbo;
     QSize m_size;
     bool m_hasAlphaChannel;
     const bool m_usesShader;
     ShaderBundle m_shaderCode;
+    bool mutable m_drawn, m_bound;
 
     friend class GrallocTextureCreator;
 };
