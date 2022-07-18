@@ -56,16 +56,20 @@ enum AlphaBehavior {
 
 static const GLchar* COLOR_CONVERSION_VERTEX = {
     "#version 100\n"
-    "attribute vec2 position;\n"
+    "attribute vec4 vertexCoord;\n"
+    "attribute vec2 textureCoord;\n"
+    "varying vec2 uv;\n"
     "\n"
     "void main() {\n"
-    "   gl_Position = vec4(position, 0.0, 1.0);\n"
+    "    uv = vec3(textureCoord, 1.0).xy;\n"
+    "    gl_Position = vertexCoord;\n"
     "}\n"
 };
 
 static const GLchar* ARGB32_TO_RGBA8888 = {
     "#version 100\n"
     "uniform sampler2D tex;\n"
+    "varying vec2 uv;\n"
     "\n"
     "void main() {\n"
     "    gl_FragColor.rgba = texture2D(tex, gl_FragCoord.xy).argb;\n"
@@ -75,6 +79,7 @@ static const GLchar* ARGB32_TO_RGBA8888 = {
 static const GLchar* FIXUP_RGB32 = {
     "#version 100\n"
     "uniform sampler2D tex;\n"
+    "varying vec2 uv;\n"
     "\n"
     "void main() {\n"
     "    gl_FragColor.rgb = texture2D(tex, gl_FragCoord.xy).rgb;\n"

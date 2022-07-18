@@ -29,7 +29,7 @@ QAnimationDriver* Context::createAnimationDriver(QObject *parent)
     return new AnimationDriver(parent);
 }
 
-#if 0
+#if 1
 QSGRenderContext* Context::createRenderContext()
 {
     return new RenderContext(this);

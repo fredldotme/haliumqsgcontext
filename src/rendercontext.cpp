@@ -43,12 +43,11 @@ bool RenderContext::init() const
 QSGTexture* RenderContext::createTexture(const QImage &image, uint flags) const
 {
     QSGTexture* texture = nullptr;
-#if 0
+
     static bool colorShadersBuilt = init();
 
     if (!colorShadersBuilt)
         goto default_method;
-#endif
 
     texture = GrallocTextureCreator::createTexture(image, m_cachedShaders);
     if (texture)

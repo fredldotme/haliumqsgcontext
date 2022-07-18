@@ -61,8 +61,8 @@ int GrallocTextureCreator::convertFormat(const QImage& image, int& numChannels, 
         break;
 #if 1
     case QImage::Format_ARGB32_Premultiplied:
-        //conversionShader = ColorShader_ArgbToRgba;
-        alphaBehavior = AlphaBehavior_None;
+        conversionShader = ColorShader_ArgbToRgba;
+        //alphaBehavior = AlphaBehavior_None;
         numChannels = 4;
         return HAL_PIXEL_FORMAT_RGBA_8888;
 #endif
@@ -179,7 +179,7 @@ QSGTexture* GrallocTextureCreator::createTexture(const QImage& image, ShaderCach
 
 GrallocTexture::GrallocTexture(struct graphic_buffer* handle, const QSize& size, const bool& hasAlphaChannel, ShaderBundle conversionShader) :
     QSGTexture(), m_handle(handle), m_image(EGL_NO_IMAGE_KHR), m_size(size),
-    m_hasAlphaChannel(hasAlphaChannel), m_shaderCode(conversionShader), m_usesShader(false), m_drawn(false)
+    m_hasAlphaChannel(hasAlphaChannel), m_shaderCode(conversionShader), m_usesShader(true), m_drawn(false)
 {
     eglCreateImageKHR = (PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress("eglCreateImageKHR");
     if (!eglCreateImageKHR)
@@ -253,15 +253,27 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
     const auto width = graphic_buffer_get_width(m_handle);
     const auto height = graphic_buffer_get_height(m_handle);
     const int textureUnit = 0;
+    int samLocation = -1;
     int texLocation = -1;
     int posLocation = -1;
 
-    const GLfloat vertices[20] = {
-        //vertices            //positions
-        -1.0f, -1.0f, 0.0f, 0.0f, 1.0f,
-        1.0f, -1.0f, 0.0f, 1.0f, 1.0f,
-        -1.0f, 1.0f, 0.0f, 0.0f, 0.0f,
-        1.0f, 1.0f, 0.0f, 1.0f, 0.0f};
+    static const GLfloat vertices[] = {
+        -1,-1, 0,
+        -1, 1, 0,
+        1,-1, 0,
+        -1, 1, 0,
+        1,-1, 0,
+        1, 1, 0
+    };
+
+    static const GLfloat texcoords[] = {
+        0, 0,
+        0, 1,
+        1, 0,
+        0, 1,
+        1, 0,
+        1, 1
+    };
 
     QOpenGLFramebufferObject fbo(width, height);
     if (!fbo.isValid()) {
@@ -274,21 +286,36 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
 
     QOpenGLVertexArrayObject vao;
     QOpenGLBuffer vertexBuffer(QOpenGLBuffer::VertexBuffer);
+    QOpenGLBuffer textureBuffer(QOpenGLBuffer::VertexBuffer);
+
     vao.create();
     vertexBuffer.create();
     vertexBuffer.bind();
-    vertexBuffer.allocate(vertices, sizeof(GLfloat) * 20);
+    vertexBuffer.allocate(vertices, sizeof(vertices));
+    textureBuffer.create();
+    textureBuffer.bind();
+    textureBuffer.allocate(texcoords, sizeof(texcoords));
 
-    texLocation = m_shaderCode.program->uniformLocation("tex");
-    m_shaderCode.program->setUniformValue(texLocation, 0);
-    posLocation = m_shaderCode.program->attributeLocation("position");
-    gl->glVertexAttribPointer(posLocation, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(GLfloat), 0);
+    samLocation = m_shaderCode.program->uniformLocation("tex");
+    m_shaderCode.program->setUniformValue(samLocation, 0);
+
+    posLocation = m_shaderCode.program->attributeLocation("vertexCoord");
+    m_shaderCode.program->setAttributeBuffer(posLocation, GL_FLOAT, 0, 3, 0);
     m_shaderCode.program->enableAttributeArray(posLocation);
+
+    texLocation = m_shaderCode.program->attributeLocation("textureCoord");
+    m_shaderCode.program->setAttributeBuffer(texLocation, GL_FLOAT, 0, 2, 0);
+    m_shaderCode.program->enableAttributeArray(texLocation);
 
     // "Dump" the EGLImage onto the fbo
     glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, m_image);
 
+    gl->glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    vertexBuffer.release();
+    textureBuffer.release();
     m_shaderCode.program->release();
+    vao.release();
     m_texture = fbo.takeTexture();
 }
 
@@ -298,7 +325,10 @@ void GrallocTexture::bind()
 
     QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
     gl->glBindTexture(GL_TEXTURE_2D, m_texture);
-    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, m_image);
+
+    if (!m_usesShader) {
+        glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, m_image);
+    }
 
     m_drawn = true;
 }
