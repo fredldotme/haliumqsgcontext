@@ -37,7 +37,6 @@ private:
     bool compileColorShaders() const;
     bool init() const;
 
-
     QOpenGLDebugLogger mutable m_glLogger;
     ShaderCache mutable m_cachedShaders;
 };

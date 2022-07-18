@@ -102,6 +102,8 @@ bool RenderContext::compileColorShaders() const
         int posLocation = program->attributeLocation("vertexCoord");
         int texLocation = program->attributeLocation("textureCoord");
 
+        qDebug() << samLocation << posLocation << texLocation;
+
         ShaderBundle bundle{program, samLocation, posLocation, texLocation};
 
         m_cachedShaders[(ColorShader)i] = bundle;

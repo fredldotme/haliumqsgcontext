@@ -273,11 +273,8 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
         return;
     }
 
+    gl->glActiveTexture(GL_TEXTURE0 + textureUnit);
     fbo.bind();
-
-    // "Dump" the EGLImage onto the fbo
-    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, m_image);
-
     m_shaderCode.program->bind();
 
     QOpenGLVertexArrayObject vao;
@@ -292,13 +289,16 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
     textureBuffer.bind();
     textureBuffer.allocate(texcoords, sizeof(texcoords));
 
-    m_shaderCode.program->setUniformValue(m_shaderCode.samLocation, 0);
+    m_shaderCode.program->setUniformValue(m_shaderCode.samLocation, textureUnit);
 
     m_shaderCode.program->setAttributeBuffer(m_shaderCode.posLocation, GL_FLOAT, 0, 3, 0);
     m_shaderCode.program->enableAttributeArray(m_shaderCode.posLocation);
 
     m_shaderCode.program->setAttributeBuffer(m_shaderCode.texLocation, GL_FLOAT, 0, 2, 0);
     m_shaderCode.program->enableAttributeArray(m_shaderCode.texLocation);
+
+    // "Dump" the EGLImage onto the fbo
+    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, m_image);
 
     gl->glDrawArrays(GL_TRIANGLES, 0, 6);
 
@@ -312,6 +312,7 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
     m_shaderCode.program->release();
 
     m_texture = fbo.takeTexture();
+    gl->glActiveTexture(GL_TEXTURE0);
 }
 
 void GrallocTexture::bind()
