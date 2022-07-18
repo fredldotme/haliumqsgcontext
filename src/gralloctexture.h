@@ -88,6 +88,9 @@ static const GLchar* FIXUP_RGB32 = {
 
 struct ShaderBundle {
     std::shared_ptr<QOpenGLShaderProgram> program;
+    int samLocation;
+    int texLocation;
+    int posLocation;
 };
 
 typedef std::map<ColorShader, ShaderBundle> ShaderCache;

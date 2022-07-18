@@ -98,7 +98,11 @@ bool RenderContext::compileColorShaders() const
             return false;
         }
 
-        ShaderBundle bundle{program};
+        int samLocation = program->uniformLocation("tex");
+        int posLocation = program->attributeLocation("vertexCoord");
+        int texLocation = program->attributeLocation("textureCoord");
+
+        ShaderBundle bundle{program, samLocation, posLocation, texLocation};
 
         m_cachedShaders[(ColorShader)i] = bundle;
     }
