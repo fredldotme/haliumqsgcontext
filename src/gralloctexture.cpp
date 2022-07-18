@@ -222,14 +222,6 @@ GrallocTexture::~GrallocTexture()
 int GrallocTexture::textureId() const
 {
     QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
-    if (m_texture == 0) {
-        if (m_usesShader) {
-            renderShader(gl);
-        } else {
-            gl->glGenTextures(1, &m_texture);
-        }
-    }
-
     return m_texture;
 }
 
@@ -285,8 +277,8 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
     m_shaderCode.program->bind();
 
     QOpenGLVertexArrayObject vao;
-    QOpenGLBuffer vertexBuffer(QOpenGLBuffer::VertexBuffer);
-    QOpenGLBuffer textureBuffer(QOpenGLBuffer::VertexBuffer);
+    QOpenGLBuffer vertexBuffer;
+    QOpenGLBuffer textureBuffer;
 
     vao.create();
     vertexBuffer.create();
@@ -312,10 +304,15 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
 
     gl->glDrawArrays(GL_TRIANGLES, 0, 6);
 
+    vertexBuffer.destroy();
+    textureBuffer.destroy();
+    vao.destroy();
+
     vertexBuffer.release();
     textureBuffer.release();
-    m_shaderCode.program->release();
     vao.release();
+    m_shaderCode.program->release();
+
     m_texture = fbo.takeTexture();
 }
 
@@ -324,8 +321,15 @@ void GrallocTexture::bind()
     m_bound = true;
 
     QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
-    gl->glBindTexture(GL_TEXTURE_2D, m_texture);
+    if (m_texture == 0) {
+        if (m_usesShader) {
+            renderShader(gl);
+        } else {
+            gl->glGenTextures(1, &m_texture);
+        }
+    }
 
+    gl->glBindTexture(GL_TEXTURE_2D, m_texture);
     if (!m_usesShader) {
         glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, m_image);
     }

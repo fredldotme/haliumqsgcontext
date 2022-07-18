@@ -72,7 +72,7 @@ static const GLchar* ARGB32_TO_RGBA8888 = {
     "varying vec2 uv;\n"
     "\n"
     "void main() {\n"
-    "    gl_FragColor.rgba = texture2D(tex, gl_FragCoord.xy).argb;\n"
+    "    gl_FragColor.rgba = texture2D(tex, uv).argb;\n"
     "}\n"
 };
 
@@ -82,7 +82,7 @@ static const GLchar* FIXUP_RGB32 = {
     "varying vec2 uv;\n"
     "\n"
     "void main() {\n"
-    "    gl_FragColor.rgb = texture2D(tex, gl_FragCoord.xy).rgb;\n"
+    "    gl_FragColor.rgb = texture2D(tex, uv).rgb;\n"
     "}\n"
 };
 
