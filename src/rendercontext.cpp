@@ -50,8 +50,14 @@ QSGTexture* RenderContext::createTexture(const QImage &image, uint flags) const
         goto default_method;
 
     texture = GrallocTextureCreator::createTexture(image, m_cachedShaders);
-    if (texture)
+    if (texture) {
+#if 1
+        QSGDynamicTexture* dynamicTexture = qobject_cast<QSGDynamicTexture*>(texture);
+        if (dynamicTexture)
+           dynamicTexture->updateTexture();
+#endif
         return texture;
+    }
 
 default_method:
     return QSGDefaultRenderContext::createTexture(image, flags);

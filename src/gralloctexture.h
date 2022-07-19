@@ -21,6 +21,7 @@
 #include <QImage>
 #include <QSize>
 #include <QSGTexture>
+#include <QSGDynamicTexture>
 #include <QDebug>
 
 #include <QOpenGLContext>
@@ -72,7 +73,7 @@ static const GLchar* ARGB32_TO_RGBA8888 = {
     "varying vec2 uv;\n"
     "\n"
     "void main() {\n"
-    "    gl_FragColor.rgba = texture2D(tex, uv).argb;\n"
+    "    gl_FragColor.rgba = texture2D(tex, uv).bgra;\n"
     "}\n"
 };
 
@@ -107,7 +108,7 @@ private:
     static int convertFormat(const QImage& image, int& numChannels, ColorShader& conversionShader, AlphaBehavior& premultiply);
 };
 
-class GrallocTexture : public QSGTexture
+class GrallocTexture : public QSGDynamicTexture
 {
     Q_OBJECT
 
@@ -119,6 +120,7 @@ public:
     bool hasAlphaChannel() const override;
     bool hasMipmaps() const override;
     void bind() override;
+    bool updateTexture() override;
 
 private:
     GrallocTexture(struct graphic_buffer* handle, const QSize& size, const bool& hasAlphaChannel, ShaderBundle conversionShader);

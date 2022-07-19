@@ -52,7 +52,7 @@ int GrallocTextureCreator::convertFormat(const QImage& image, int& numChannels, 
         break;
     case QImage::Format_Indexed8:
         break;
-#if 0
+#if 1
     case QImage::Format_RGB32:
         conversionShader = ColorShader_FixupRgb32;
         numChannels = 4;
@@ -60,7 +60,7 @@ int GrallocTextureCreator::convertFormat(const QImage& image, int& numChannels, 
 #endif
     case QImage::Format_ARGB32:
         break;
-#if 1
+#if 0
     case QImage::Format_ARGB32_Premultiplied:
         conversionShader = ColorShader_ArgbToRgba;
         numChannels = 4;
@@ -178,7 +178,7 @@ QSGTexture* GrallocTextureCreator::createTexture(const QImage& image, ShaderCach
 }
 
 GrallocTexture::GrallocTexture(struct graphic_buffer* handle, const QSize& size, const bool& hasAlphaChannel, ShaderBundle conversionShader) :
-    QSGTexture(), m_handle(handle), m_image(EGL_NO_IMAGE_KHR), m_size(size),
+    QSGDynamicTexture(), m_handle(handle), m_image(EGL_NO_IMAGE_KHR), m_size(size),
     m_hasAlphaChannel(hasAlphaChannel), m_shaderCode(conversionShader), m_usesShader(true), m_drawn(false)
 {
     eglCreateImageKHR = (PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress("eglCreateImageKHR");
@@ -222,15 +222,6 @@ GrallocTexture::~GrallocTexture()
 int GrallocTexture::textureId() const
 {
     QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
-
-    if (m_texture == 0) {
-        if (m_usesShader) {
-            renderShader(gl);
-        } else {
-            gl->glGenTextures(1, &m_texture);
-        }
-    }
-
     return m_texture;
 }
 
@@ -251,19 +242,18 @@ bool GrallocTexture::hasMipmaps() const
 
 void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
 {
+    qDebug() << Q_FUNC_INFO;
+
     const auto width = graphic_buffer_get_width(m_handle);
     const auto height = graphic_buffer_get_height(m_handle);
-    int samLocation = -1;
-    int texLocation = -1;
-    int posLocation = -1;
-    int textureUnit = 0;
+    const int textureUnit = 1;
+
+    GLuint tmpTexture;
 
     static const GLfloat vertices[] = {
-        -1,-1, 0,
-        -1, 1, 0,
-        1,-1, 0,
-        -1, 1, 0,
-        1,-1, 0,
+        0, 1, 0,
+        0, 0, 0,
+        1, 0, 0,
         1, 1, 0
     };
 
@@ -284,35 +274,57 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
 
     fbo.bind();
 
-    gl->glActiveTexture(GL_TEXTURE0 + textureUnit);
-    gl->glBindTexture(GL_TEXTURE_2D, fbo.texture());
-    m_shaderCode.program->bind();
+    gl->glClear(GL_COLOR_BUFFER_BIT);
 
-    // "Dump" the EGLImage onto the fbo
-    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, m_image);
+    m_shaderCode.program->bind();
 
     QOpenGLVertexArrayObject vao;
     QOpenGLBuffer vertexBuffer;
     QOpenGLBuffer textureBuffer;
 
+    gl->glActiveTexture(GL_TEXTURE0 + textureUnit);
+    gl->glGenTextures(1, &tmpTexture);
+    gl->glBindTexture(GL_TEXTURE_2D, tmpTexture);
+    gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+
+#if 0
+    texture.setWrapMode(QOpenGLTexture::ClampToBorder);
+    texture.setMinificationFilter(QOpenGLTexture::Nearest);
+    texture.setMagnificationFilter(QOpenGLTexture::Nearest);
+    texture.bind();
+#endif
+
     vao.create();
+    vao.bind();
+
     vertexBuffer.create();
+    vertexBuffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
     vertexBuffer.bind();
     vertexBuffer.allocate(vertices, sizeof(vertices));
+
     textureBuffer.create();
+    textureBuffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
     textureBuffer.bind();
     textureBuffer.allocate(texcoords, sizeof(texcoords));
 
-    m_shaderCode.program->setUniformValue(m_shaderCode.samLocation, textureUnit);
+    m_shaderCode.program->setAttributeBuffer("vertexCoord", GL_FLOAT, 0, 3, 0);
+    m_shaderCode.program->enableAttributeArray("vertexCoord");
 
-    m_shaderCode.program->setAttributeBuffer(m_shaderCode.posLocation, GL_FLOAT, 0, 3, 0);
-    m_shaderCode.program->enableAttributeArray(m_shaderCode.posLocation);
+    m_shaderCode.program->setAttributeBuffer("textureCoord", GL_FLOAT, 0, 2, 0);
+    m_shaderCode.program->enableAttributeArray("textureCoord");
 
-    m_shaderCode.program->setAttributeBuffer(m_shaderCode.texLocation, GL_FLOAT, 0, 2, 0);
-    m_shaderCode.program->enableAttributeArray(m_shaderCode.texLocation);
+    m_shaderCode.program->setUniformValue("tex", textureUnit);
+
+    // "Dump" the EGLImage onto the texture
+    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, m_image);
 
     gl->glDrawArrays(GL_TRIANGLES, 0, 6);
 
+    m_shaderCode.program->disableAttributeArray("textureCoord");
+    m_shaderCode.program->disableAttributeArray("vertexCoord");
     vertexBuffer.destroy();
     textureBuffer.destroy();
     vao.destroy();
@@ -323,7 +335,24 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
     m_shaderCode.program->release();
 
     gl->glActiveTexture(GL_TEXTURE0);
+    gl->glBindTexture(GL_TEXTURE_2D, 0);
+    gl->glDeleteTextures(1, &tmpTexture);
     m_texture = fbo.takeTexture();
+}
+
+bool GrallocTexture::updateTexture()
+{
+    if (m_texture == 0) {
+        QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
+        if (m_usesShader) {
+            renderShader(gl);
+            return true;
+        } else {
+            gl->glGenTextures(1, &m_texture);
+            return true;
+        }
+    }
+    return false;
 }
 
 void GrallocTexture::bind()
