@@ -20,6 +20,8 @@
 #include <QOpenGLVertexArrayObject>
 #include <QOpenGLBuffer>
 #include <QOpenGLTexture>
+#include <QMutexLocker>
+#include <QMatrix3x3>
 
 #include <exception>
 
@@ -221,7 +223,6 @@ GrallocTexture::~GrallocTexture()
 
 int GrallocTexture::textureId() const
 {
-    QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
     return m_texture;
 }
 
@@ -242,22 +243,23 @@ bool GrallocTexture::hasMipmaps() const
 
 void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
 {
-    qDebug() << Q_FUNC_INFO;
-
     const auto width = graphic_buffer_get_width(m_handle);
     const auto height = graphic_buffer_get_height(m_handle);
     const int textureUnit = 1;
-
+    GLint tex;
+    GLint prog;
     GLuint tmpTexture;
 
-    static const GLfloat vertices[] = {
-        0, 1, 0,
-        0, 0, 0,
-        1, 0, 0,
-        1, 1, 0
+    static const GLfloat vertex_buffer_data[] = {
+        -1,-1, 0,
+        -1, 1, 0,
+         1,-1, 0,
+        -1, 1, 0,
+         1,-1, 0,
+         1, 1, 0
     };
 
-    static const GLfloat texcoords[] = {
+    static const GLfloat texture_buffer_data[] = {
         0, 0,
         0, 1,
         1, 0,
@@ -272,10 +274,14 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
         return;
     }
 
+    gl->glGetIntegerv(GL_CURRENT_PROGRAM, &prog);
+    gl->glGetIntegerv(GL_TEXTURE_BINDING_2D, &tex);
+
     fbo.bind();
 
     gl->glClear(GL_COLOR_BUFFER_BIT);
 
+    QMutexLocker lock(m_shaderCode.mutex.get());
     m_shaderCode.program->bind();
 
     QOpenGLVertexArrayObject vao;
@@ -290,54 +296,70 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
     gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
     gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
 
-#if 0
-    texture.setWrapMode(QOpenGLTexture::ClampToBorder);
-    texture.setMinificationFilter(QOpenGLTexture::Nearest);
-    texture.setMagnificationFilter(QOpenGLTexture::Nearest);
-    texture.bind();
-#endif
+    // "Dump" the EGLImage onto the texture
+    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, m_image);
 
     vao.create();
     vao.bind();
 
     vertexBuffer.create();
-    vertexBuffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
     vertexBuffer.bind();
-    vertexBuffer.allocate(vertices, sizeof(vertices));
-
-    textureBuffer.create();
-    textureBuffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
-    textureBuffer.bind();
-    textureBuffer.allocate(texcoords, sizeof(texcoords));
-
+    vertexBuffer.allocate(vertex_buffer_data, sizeof(vertex_buffer_data));
     m_shaderCode.program->setAttributeBuffer("vertexCoord", GL_FLOAT, 0, 3, 0);
     m_shaderCode.program->enableAttributeArray("vertexCoord");
+    vertexBuffer.release();
 
+    textureBuffer.create();
+    textureBuffer.bind();
+    textureBuffer.allocate(texture_buffer_data, sizeof(texture_buffer_data));
     m_shaderCode.program->setAttributeBuffer("textureCoord", GL_FLOAT, 0, 2, 0);
     m_shaderCode.program->enableAttributeArray("textureCoord");
+    textureBuffer.release();
 
+    QMatrix4x4 vertexTransform = targetTransform(fbo.size());
+    m_shaderCode.program->setUniformValue("vertexTransform", vertexTransform);
+    QMatrix3x3 textureTransform;
+    m_shaderCode.program->setUniformValue("textureTransform", textureTransform);
     m_shaderCode.program->setUniformValue("tex", textureUnit);
 
-    // "Dump" the EGLImage onto the texture
-    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, m_image);
-
+    gl->glViewport(0, 0, width, height);
     gl->glDrawArrays(GL_TRIANGLES, 0, 6);
 
     m_shaderCode.program->disableAttributeArray("textureCoord");
     m_shaderCode.program->disableAttributeArray("vertexCoord");
     vertexBuffer.destroy();
     textureBuffer.destroy();
-    vao.destroy();
 
-    vertexBuffer.release();
-    textureBuffer.release();
     vao.release();
     m_shaderCode.program->release();
 
-    gl->glActiveTexture(GL_TEXTURE0);
-    gl->glBindTexture(GL_TEXTURE_2D, 0);
-    gl->glDeleteTextures(1, &tmpTexture);
     m_texture = fbo.takeTexture();
+
+    gl->glActiveTexture(GL_TEXTURE0);
+    gl->glBindTexture(GL_TEXTURE_2D, tex);
+    gl->glUseProgram(prog);
+    gl->glDeleteTextures(1, &tmpTexture);
+}
+
+QMatrix4x4 GrallocTexture::targetTransform(const QSize& size) const
+{
+    const QRect target = QRect(QPoint(0, 0), size);
+    const QRect viewport = target;
+
+    qreal x_scale = target.width() / viewport.width();
+    qreal y_scale = target.height() / viewport.height();
+
+    const QPointF relative_to_viewport = target.topLeft() - viewport.topLeft();
+    qreal x_translate = x_scale - 1 + ((relative_to_viewport.x() / viewport.width()) * 2);
+    qreal y_translate = -y_scale + 1 - ((relative_to_viewport.y() / viewport.height()) * 2);
+
+    QMatrix4x4 matrix;
+    matrix(0,3) = x_translate;
+    matrix(1,3) = y_translate;
+
+    matrix(0,0) = x_scale;
+    matrix(1,1) = y_scale;
+    return matrix;
 }
 
 bool GrallocTexture::updateTexture()
@@ -360,11 +382,8 @@ void GrallocTexture::bind()
     m_bound = true;
 
     QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
-
     gl->glBindTexture(GL_TEXTURE_2D, m_texture);
     if (!m_usesShader) {
         glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, m_image);
     }
-
-    m_drawn = true;
 }

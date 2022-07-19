@@ -23,6 +23,8 @@
 #include <QSGTexture>
 #include <QSGDynamicTexture>
 #include <QDebug>
+#include <QMutex>
+#include <QMatrix4x4>
 
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
@@ -57,13 +59,15 @@ enum AlphaBehavior {
 
 static const GLchar* COLOR_CONVERSION_VERTEX = {
     "#version 100\n"
-    "attribute vec4 vertexCoord;\n"
+    "attribute vec3 vertexCoord;\n"
     "attribute vec2 textureCoord;\n"
     "varying vec2 uv;\n"
+    "uniform mat4 vertexTransform;\n"
+    "uniform mat3 textureTransform;\n"
     "\n"
     "void main() {\n"
-    "    uv = vec3(textureCoord, 1.0).xy;\n"
-    "    gl_Position = vertexCoord;\n"
+    "    uv = (textureTransform * vec3(textureCoord,1.0)).xy;\n"
+    "    gl_Position = vertexTransform * vec4(vertexCoord,1.0);\n"
     "}\n"
 };
 
@@ -73,7 +77,7 @@ static const GLchar* ARGB32_TO_RGBA8888 = {
     "varying vec2 uv;\n"
     "\n"
     "void main() {\n"
-    "    gl_FragColor.rgba = texture2D(tex, uv).bgra;\n"
+    "    gl_FragColor.agbr = texture2D(tex, uv).abgr;\n"
     "}\n"
 };
 
@@ -83,15 +87,13 @@ static const GLchar* FIXUP_RGB32 = {
     "varying vec2 uv;\n"
     "\n"
     "void main() {\n"
-    "    gl_FragColor.rgb = texture2D(tex, uv).rgb;\n"
+    "    gl_FragColor.argb = texture2D(tex, uv).abgr;\n"
     "}\n"
 };
 
 struct ShaderBundle {
     std::shared_ptr<QOpenGLShaderProgram> program;
-    int samLocation;
-    int texLocation;
-    int posLocation;
+    std::shared_ptr<QMutex> mutex;
 };
 
 typedef std::map<ColorShader, ShaderBundle> ShaderCache;
@@ -125,6 +127,8 @@ public:
 private:
     GrallocTexture(struct graphic_buffer* handle, const QSize& size, const bool& hasAlphaChannel, ShaderBundle conversionShader);
     ~GrallocTexture();
+
+    QMatrix4x4 targetTransform(const QSize& size) const;
 
     void renderShader(QOpenGLFunctions* gl) const;
 

@@ -18,6 +18,8 @@
 
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
+#include <QThread>
+#include <QMutex>
 
 RenderContext::RenderContext(QSGContext* context) : QSGDefaultRenderContext(context)
 {
@@ -46,16 +48,14 @@ QSGTexture* RenderContext::createTexture(const QImage &image, uint flags) const
 
     static bool colorShadersBuilt = init();
 
-    if (!colorShadersBuilt)
+    if (!colorShadersBuilt || QOpenGLContext::currentContext()->thread() != this->thread())
         goto default_method;
 
     texture = GrallocTextureCreator::createTexture(image, m_cachedShaders);
     if (texture) {
-#if 1
         QSGDynamicTexture* dynamicTexture = qobject_cast<QSGDynamicTexture*>(texture);
         if (dynamicTexture)
            dynamicTexture->updateTexture();
-#endif
         return texture;
     }
 
@@ -69,6 +69,7 @@ bool RenderContext::compileColorShaders() const
 
     for (int i = (int)ColorShader::ColorShader_First; i < ColorShader::ColorShader_Count; i++) {
         auto program = std::make_shared<QOpenGLShaderProgram>();
+        auto mutex = std::make_shared<QMutex>();
         bool success = false;
 
         success = program->addCacheableShaderFromSourceCode(QOpenGLShader::Vertex, COLOR_CONVERSION_VERTEX);
@@ -104,13 +105,7 @@ bool RenderContext::compileColorShaders() const
             return false;
         }
 
-        int samLocation = program->uniformLocation("tex");
-        int posLocation = program->attributeLocation("vertexCoord");
-        int texLocation = program->attributeLocation("textureCoord");
-
-        qDebug() << samLocation << posLocation << texLocation;
-
-        ShaderBundle bundle{program, samLocation, posLocation, texLocation};
+        ShaderBundle bundle{program, mutex};
 
         m_cachedShaders[(ColorShader)i] = bundle;
     }
