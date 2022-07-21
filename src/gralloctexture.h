@@ -77,7 +77,7 @@ static const GLchar* ARGB32_TO_RGBA8888 = {
     "varying vec2 uv;\n"
     "\n"
     "void main() {\n"
-    "    gl_FragColor.agbr = texture2D(tex, uv).abgr;\n"
+    "    gl_FragColor.argb = texture2D(tex, uv).abgr;\n"
     "}\n"
 };
 
@@ -102,7 +102,7 @@ class GrallocTexture;
 class GrallocTextureCreator
 {
 public:
-    static QSGTexture* createTexture(const QImage& image, ShaderCache& cachedShaders);
+    static GrallocTexture* createTexture(const QImage& image, ShaderCache& cachedShaders);
 
 private:
     static uint32_t convertUsage(const QImage& image);
@@ -110,7 +110,7 @@ private:
     static int convertFormat(const QImage& image, int& numChannels, ColorShader& conversionShader, AlphaBehavior& premultiply);
 };
 
-class GrallocTexture : public QSGDynamicTexture
+class GrallocTexture : public QSGTexture
 {
     Q_OBJECT
 
@@ -122,7 +122,7 @@ public:
     bool hasAlphaChannel() const override;
     bool hasMipmaps() const override;
     void bind() override;
-    bool updateTexture() override;
+    bool updateTexture() const;
 
 private:
     GrallocTexture(struct graphic_buffer* handle, const QSize& size, const bool& hasAlphaChannel, ShaderBundle conversionShader);

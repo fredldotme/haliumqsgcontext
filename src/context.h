@@ -28,9 +28,7 @@ public:
     explicit Context(QObject *parent = 0);
 
     QAnimationDriver* createAnimationDriver(QObject *parent) override;
-#if 1
     QSGRenderContext *createRenderContext() override;
-#endif
 };
 
 #endif

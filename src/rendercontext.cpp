@@ -33,12 +33,13 @@ void RenderContext::messageReceived(const QOpenGLDebugMessage &debugMessage)
 
 bool RenderContext::init() const
 {
-    connect(&m_glLogger, &QOpenGLDebugLogger::messageLogged, this, &RenderContext::messageReceived);
+    if (qEnvironmentVariableIsSet("LOMIRI_CONTEXT_OPENGL_LOG")) {
+        connect(&m_glLogger, &QOpenGLDebugLogger::messageLogged, this, &RenderContext::messageReceived);
 
-    QOpenGLContext *ctx = QOpenGLContext::currentContext();
-    m_glLogger.initialize();
-    m_glLogger.startLogging();
-
+        QOpenGLContext *ctx = QOpenGLContext::currentContext();
+        m_glLogger.initialize();
+        m_glLogger.startLogging();
+    }
     return compileColorShaders();
 }
 
@@ -53,7 +54,7 @@ QSGTexture* RenderContext::createTexture(const QImage &image, uint flags) const
 
     texture = GrallocTextureCreator::createTexture(image, m_cachedShaders);
     if (texture) {
-        QSGDynamicTexture* dynamicTexture = qobject_cast<QSGDynamicTexture*>(texture);
+        GrallocTexture* dynamicTexture = static_cast<GrallocTexture*>(texture);
         if (dynamicTexture)
            dynamicTexture->updateTexture();
         return texture;
