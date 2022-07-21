@@ -54,9 +54,9 @@ QSGTexture* RenderContext::createTexture(const QImage &image, uint flags) const
 
     texture = GrallocTextureCreator::createTexture(image, m_cachedShaders);
     if (texture) {
-        GrallocTexture* dynamicTexture = static_cast<GrallocTexture*>(texture);
-        if (dynamicTexture)
-           dynamicTexture->updateTexture();
+        GrallocTexture* grallocTexture = static_cast<GrallocTexture*>(texture);
+        if (grallocTexture)
+            grallocTexture->updateTexture();
         return texture;
     }
 

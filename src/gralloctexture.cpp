@@ -45,7 +45,7 @@ uint32_t GrallocTextureCreator::convertLockUsage(const QImage& image)
 
 int GrallocTextureCreator::convertFormat(const QImage& image, int& numChannels, ColorShader& conversionShader, AlphaBehavior& alphaBehavior)
 {
-    qInfo() << "format:" << image.format();
+    //qInfo() << "format:" << image.format();
 
     switch (image.format()) {
     case QImage::Format_Mono:
@@ -175,7 +175,7 @@ GrallocTexture* GrallocTextureCreator::createTexture(const QImage& image, Shader
         handle = nullptr;
     }
 
-    qDebug() << "Texture:" << texture;
+    //qDebug() << "Texture:" << texture;
     return texture;
 }
 
@@ -277,7 +277,6 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
 
     fbo.bind();
 
-    gl->glViewport(0, 0, width, height);
     gl->glClearColor(0, 0, 0, 0);
     gl->glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -298,6 +297,8 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
 
     // "Dump" the EGLImage onto the texture
     glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, m_image);
+
+    gl->glViewport(0, 0, width, height);
 
     vao.create();
     vao.bind();
@@ -337,7 +338,6 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
     gl->glActiveTexture(GL_TEXTURE0);
     gl->glDeleteTextures(1, &tmpTexture);
 
-    gl->glFinish();
     m_texture = fbo.takeTexture();
 }
 
