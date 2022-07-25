@@ -126,18 +126,20 @@ public:
 
 private:
     GrallocTexture(struct graphic_buffer* handle, const QSize& size, const bool& hasAlphaChannel, ShaderBundle conversionShader);
+    GrallocTexture(struct graphic_buffer* handle, const QSize& size, const bool& hasAlphaChannel);
     ~GrallocTexture();
 
+    void initializeEgl(struct graphic_buffer* handle);
     QMatrix4x4 targetTransform(const QSize& size) const;
 
     void renderShader(QOpenGLFunctions* gl) const;
+    void renderEglImage(QOpenGLFunctions* gl) const;
 
     PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR;
     PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR;
     PFNGLEGLIMAGETARGETTEXTURE2DOESPROC glEGLImageTargetTexture2DOES;
 
-    struct graphic_buffer* m_handle;
-    EGLImageKHR m_image;
+    EGLImageKHR mutable m_image;
     GLuint mutable m_texture;
     QSize m_size;
     bool m_hasAlphaChannel;

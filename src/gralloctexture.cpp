@@ -25,22 +25,20 @@
 
 #include <exception>
 
-#undef None
-#include <private/qdrawhelper_p.h>
-
 extern "C" {
 void hybris_ui_initialize();
 }
 
 uint32_t GrallocTextureCreator::convertUsage(const QImage& image)
 {
-    return GRALLOC_USAGE_SW_READ_RARELY | GRALLOC_USAGE_HW_RENDER |
+    return GRALLOC_USAGE_SW_READ_NEVER | GRALLOC_USAGE_HW_RENDER |
            GRALLOC_USAGE_HW_TEXTURE;
 }
 
 uint32_t GrallocTextureCreator::convertLockUsage(const QImage& image)
 {
-    return GRALLOC_USAGE_SW_WRITE_RARELY;
+    return GRALLOC_USAGE_SW_WRITE_RARELY | GRALLOC_USAGE_HW_RENDER |
+           GRALLOC_USAGE_HW_TEXTURE;
 }
 
 int GrallocTextureCreator::convertFormat(const QImage& image, int& numChannels, ColorShader& conversionShader, AlphaBehavior& alphaBehavior)
@@ -54,20 +52,18 @@ int GrallocTextureCreator::convertFormat(const QImage& image, int& numChannels, 
         break;
     case QImage::Format_Indexed8:
         break;
-#if 1
     case QImage::Format_RGB32:
         conversionShader = ColorShader_FixupRgb32;
         numChannels = 4;
         return HAL_PIXEL_FORMAT_RGBA_8888;
-#endif
     case QImage::Format_ARGB32:
-        break;
-#if 1
+        conversionShader = ColorShader_ArgbToRgba;
+        numChannels = 4;
+        return HAL_PIXEL_FORMAT_RGBA_8888;
     case QImage::Format_ARGB32_Premultiplied:
         conversionShader = ColorShader_ArgbToRgba;
         numChannels = 4;
         return HAL_PIXEL_FORMAT_RGBA_8888;
-#endif
     case QImage::Format_RGB16:
         break;
     case QImage::Format_ARGB8565_Premultiplied:
@@ -153,7 +149,6 @@ GrallocTexture* GrallocTextureCreator::createTexture(const QImage& image, Shader
     if (vmemAddr) {
         int bytesPerLine = image.bytesPerLine();
         const uchar* sourceAddr = image.constBits();
-        const int dbpl = stride * 4;
         char* data = (char*)vmemAddr;
 
         for (int i = 0; i < height; i++) {
@@ -165,23 +160,35 @@ GrallocTexture* GrallocTextureCreator::createTexture(const QImage& image, Shader
 
         const QSize imageSize = image.size();
         const bool hasAlphaChannel = image.hasAlphaChannel();
-        texture = new GrallocTexture(handle, imageSize, hasAlphaChannel, cachedShaders[conversionShader]);
-
-        vmemAddr = nullptr;
-        handle = nullptr;
+        if (conversionShader == ColorShader_None)
+            texture = new GrallocTexture(handle, imageSize, hasAlphaChannel);
+        else
+            texture = new GrallocTexture(handle, imageSize, hasAlphaChannel, cachedShaders[conversionShader]);
     } else {
         graphic_buffer_unlock(handle);
-        vmemAddr = nullptr;
-        handle = nullptr;
     }
 
-    //qDebug() << "Texture:" << texture;
+    graphic_buffer_free(handle);
+    vmemAddr = nullptr;
+    handle = nullptr;
     return texture;
 }
 
+GrallocTexture::GrallocTexture(struct graphic_buffer* handle, const QSize& size, const bool& hasAlphaChannel) :
+    QSGTexture(), m_image(EGL_NO_IMAGE_KHR), m_size(size), m_texture(0),
+    m_hasAlphaChannel(hasAlphaChannel), m_usesShader(false), m_drawn(false), m_bound(false)
+{
+    initializeEgl(handle);
+}
+
 GrallocTexture::GrallocTexture(struct graphic_buffer* handle, const QSize& size, const bool& hasAlphaChannel, ShaderBundle conversionShader) :
-    QSGTexture(), m_handle(handle), m_image(EGL_NO_IMAGE_KHR), m_size(size), m_texture(0),
-    m_hasAlphaChannel(hasAlphaChannel), m_shaderCode(conversionShader), m_usesShader(true), m_drawn(false)
+    QSGTexture(), m_image(EGL_NO_IMAGE_KHR), m_size(size), m_texture(0),
+    m_hasAlphaChannel(hasAlphaChannel), m_shaderCode(conversionShader), m_usesShader(true), m_drawn(false), m_bound(false)
+{
+    initializeEgl(handle);
+}
+
+void GrallocTexture::initializeEgl(struct graphic_buffer* handle)
 {
     eglCreateImageKHR = (PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress("eglCreateImageKHR");
     if (!eglCreateImageKHR)
@@ -200,7 +207,7 @@ GrallocTexture::GrallocTexture(struct graphic_buffer* handle, const QSize& size,
         EGLContext context = EGL_NO_CONTEXT;
         EGLint attrs[] = { EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE };
 
-        void* native_buffer = graphic_buffer_get_native_buffer(m_handle);
+        void* native_buffer = graphic_buffer_get_native_buffer(handle);
         m_image = eglCreateImageKHR(dpy, context, EGL_NATIVE_BUFFER_ANDROID, native_buffer, attrs);
     }
 }
@@ -215,14 +222,18 @@ GrallocTexture::~GrallocTexture()
         QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
         gl->glDeleteTextures(1, &m_texture);
     }
-
-    EGLDisplay dpy = eglGetCurrentDisplay();
-    eglDestroyImageKHR(dpy, m_image);
-    graphic_buffer_free(m_handle);
+    if (m_image != EGL_NO_IMAGE_KHR) {
+        EGLDisplay dpy = eglGetCurrentDisplay();
+        eglDestroyImageKHR(dpy, m_image);
+        m_image = EGL_NO_IMAGE_KHR;
+    }
 }
 
 int GrallocTexture::textureId() const
 {
+    // In case the texture was not already created, due to being created in a non-current thread
+    // then catch up and do so now right before the textureId is being asked for.
+    updateTexture();
     return m_texture;
 }
 
@@ -243,8 +254,8 @@ bool GrallocTexture::hasMipmaps() const
 
 void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
 {
-    const auto width = graphic_buffer_get_width(m_handle);
-    const auto height = graphic_buffer_get_height(m_handle);
+    const auto width = m_size.width();
+    const auto height = m_size.height();
     const int textureUnit = 1;
     GLuint tmpTexture;
 
@@ -341,6 +352,14 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
     m_texture = fbo.takeTexture();
 }
 
+void GrallocTexture::renderEglImage(QOpenGLFunctions* gl) const
+{
+    gl->glGenTextures(1, &m_texture);
+    gl->glBindTexture(GL_TEXTURE_2D, m_texture);
+    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, m_image);
+    gl->glBindTexture(GL_TEXTURE_2D, 0);
+}
+
 QMatrix4x4 GrallocTexture::targetTransform(const QSize& size) const
 {
     const QRect target = QRect(QPoint(0, 0), size);
@@ -368,11 +387,10 @@ bool GrallocTexture::updateTexture() const
         QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
         if (m_usesShader) {
             renderShader(gl);
-            return true;
         } else {
-            gl->glGenTextures(1, &m_texture);
-            return true;
+            renderEglImage(gl);
         }
+        return true;
     }
     return false;
 }
@@ -383,7 +401,4 @@ void GrallocTexture::bind()
 
     QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
     gl->glBindTexture(GL_TEXTURE_2D, m_texture);
-    if (!m_usesShader) {
-        glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, m_image);
-    }
 }
