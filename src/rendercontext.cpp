@@ -21,6 +21,9 @@
 #include <QThread>
 #include <QMutex>
 
+#include <dlfcn.h>
+#include <hybris/common/dlfcn.h>
+
 RenderContext::RenderContext(QSGContext* context) : QSGDefaultRenderContext(context)
 {
 	
@@ -40,6 +43,21 @@ bool RenderContext::init() const
         m_glLogger.initialize();
         m_glLogger.startLogging();
     }
+
+    // Check whether the prerequisite library can be dlopened
+    {
+#ifdef __LP64__
+        const char* ldpath = "/system/lib64/libui_compat_layer.so";
+#else
+        const char* ldpath = "/system/lib/libui_compat_layer.so";
+#endif
+        void* handle = hybris_dlopen(ldpath, RTLD_LAZY);
+        if (!handle)
+            return false;
+
+        hybris_dlclose(handle);
+    }
+
     return compileColorShaders();
 }
 
