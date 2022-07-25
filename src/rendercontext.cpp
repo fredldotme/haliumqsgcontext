@@ -67,14 +67,18 @@ QSGTexture* RenderContext::createTexture(const QImage &image, uint flags) const
 
     static bool colorShadersBuilt = init();
 
-    if (!colorShadersBuilt || QOpenGLContext::currentContext()->thread() != this->thread())
+    if (!colorShadersBuilt)
         goto default_method;
 
     texture = GrallocTextureCreator::createTexture(image, m_cachedShaders);
     if (texture) {
-        GrallocTexture* grallocTexture = static_cast<GrallocTexture*>(texture);
-        if (grallocTexture)
-            grallocTexture->updateTexture();
+        // Render the color-corrected texture now if this thread has the GL context current,
+        // let QSGTexture::textureId handle it otherwise.
+        if (QOpenGLContext::currentContext() && QOpenGLContext::currentContext()->thread() != this->thread()) {
+            GrallocTexture* grallocTexture = static_cast<GrallocTexture*>(texture);
+            if (grallocTexture)
+                grallocTexture->updateTexture();
+        }
         return texture;
     }
 
