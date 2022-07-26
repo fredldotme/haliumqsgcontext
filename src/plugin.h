@@ -28,7 +28,7 @@ class LomiriContextPlugin : public QSGContextPlugin
 {
     Q_OBJECT
 
-    Q_PLUGIN_METADATA(IID "org.qt-project.Qt.QSGContextFactoryInterface" FILE "lomiricontext.json")
+    Q_PLUGIN_METADATA(IID "org.qt-project.Qt.QSGContextFactoryInterface" FILE "haliumqsgcontext.json")
 
 public:
     LomiriContextPlugin(QObject *parent = 0);

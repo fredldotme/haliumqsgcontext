@@ -1,4 +1,4 @@
-Source: lomiricontext
+Source: haliumqsgcontext
 Section: libs
 Priority: optional
 Maintainer: UBports Developers <developers@ubports.com>
@@ -14,15 +14,15 @@ Build-Depends: cmake,
                qtdeclarative5-dev,
                qtdeclarative5-private-dev,
 Standards-Version: 3.9.5
-Homepage: https://gitlab.com/ubports/development/core/lomiricontext
+Homepage: https://github.com/halium/haliumqsgcontext
 
-Package: lomiricontext
+Package: haliumqsgcontext
 Architecture: any
 Multi-Arch: same
 Depends: ${misc:Depends},
          ${shlibs:Depends},
-Description: A Qt Scene Graph context plugin for even better Lomiri integration
- lomiricontext enhances the capabilities of the Qt Scene Graph for both the
- Lomiri shell and its applications by hooking into Qt's hardware integration.
+Description: A Qt Scene Graph context plugin for even better Halium integration
+ haliumqsgcontext enhances the capabilities of the Qt Scene Graph for both the
+ graphical shells and their applications by hooking into Qt's hardware integration.
  .
- This package provides the lomiricontext Qt Scene Graph plugin.
+ This package provides the haliumqsgcontext Qt Scene Graph plugin.

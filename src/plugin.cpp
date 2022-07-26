@@ -24,7 +24,7 @@ LomiriContextPlugin::LomiriContextPlugin(QObject *parent)
 
 QStringList LomiriContextPlugin::keys() const
 {
-    return QStringList() << QLatin1String("lomiricontext");
+    return QStringList() << QLatin1String("haliumqsgcontext");
 }
 
 QSGContext* LomiriContextPlugin::create(const QString&) const

@@ -1,4 +1,4 @@
-project(lomiricontext)
+project(haliumqsgcontext)
 
 include_directories(
     SYSTEM
@@ -11,7 +11,7 @@ include_directories(
 )
 
 add_library(
-    lomiricontext
+    haliumqsgcontext
     SHARED
 
     plugin.cpp
@@ -22,7 +22,7 @@ add_library(
 )
 
 target_link_libraries(
-    lomiricontext
+    haliumqsgcontext
 
     ${EGL_LDFLAGS}
     ${EGL_LIBS}
@@ -34,4 +34,4 @@ target_link_libraries(
     Qt5::Quick
 )
 
-install(TARGETS lomiricontext LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}/qt5/plugins/scenegraph")
+install(TARGETS haliumqsgcontext LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}/qt5/plugins/scenegraph")
