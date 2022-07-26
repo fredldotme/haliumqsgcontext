@@ -1,3 +1,11 @@
+haliumqsgcontext (0.1) UNRELEASED; urgency=low
+  
+  * Working color correction using GPU shaders
+  * Simplified VSync-based QAnimationDriver
+  * Rename to haliumqsgcontext
+ 
+ -- Alfred Neumayer <dev.beidl@gmail.com>  Tue, 26 Jul 2022 09:48:22 +0200
+
 lomiricontext (0.0) UNRELEASED; urgency=low
 
   * Initial commit
