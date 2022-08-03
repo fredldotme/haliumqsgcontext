@@ -5,6 +5,7 @@ Maintainer: UBports Developers <developers@ubports.com>
 Build-Depends: cmake,
                cmake-extras (>= 0.10),
                debhelper (>= 9),
+               android-headers-28,
                libgles2-mesa-dev,
                libhybris-dev,
                pkg-config,
