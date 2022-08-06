@@ -20,9 +20,14 @@
 #include <QOpenGLFunctions>
 #include <QThread>
 #include <QMutex>
+#include <QDBusConnection>
+#include <QDBusInterface>
+#include <QDBusReply>
 
 #include <dlfcn.h>
 #include <hybris/common/dlfcn.h>
+
+#include <sys/syscall.h>
 
 RenderContext::RenderContext(QSGContext* context) : QSGDefaultRenderContext(context)
 {
@@ -44,6 +49,24 @@ bool RenderContext::init() const
         m_glLogger.startLogging();
     }
 
+    // Attempt to get FIFO scheduling from mechanicd
+    {
+        const int threadId = syscall(SYS_gettid);
+        const QString connName = QStringLiteral("haliumqsgcontext");
+
+        QDBusConnection shortConnection = QDBusConnection::connectToBus(QDBusConnection::SystemBus, connName);
+        QDBusInterface interface(QStringLiteral("org.halium.mechanicd"),
+                                 QStringLiteral("/org/halium/mechanicd/Scheduling"),
+                                 QStringLiteral("org.halium.mechanicd.Scheduling"),
+                                 shortConnection);
+
+        QDBusReply<void> reply = interface.call(QStringLiteral("requestSchedulingChange"), threadId);
+        if (!reply.isValid()) {
+            qDebug() << "Failed to acquire realtime scheduling on thread" << threadId << reply.error().message();
+        }
+        QDBusConnection::disconnectFromBus(connName);
+    }
+
     // Check whether the prerequisite library can be dlopened
     {
 #ifdef __LP64__
@@ -56,6 +79,7 @@ bool RenderContext::init() const
             return false;
 
         hybris_dlclose(handle);
+        qDebug() << "Using libui_compat_layer for textures";
     }
 
     return compileColorShaders();

@@ -31,6 +31,7 @@ target_link_libraries(
 
     -lui
     Qt5::Core
+    Qt5::DBus
     Qt5::Quick
 )
 
