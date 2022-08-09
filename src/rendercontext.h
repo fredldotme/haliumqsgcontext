@@ -37,8 +37,10 @@ private:
     bool compileColorShaders() const;
     bool init() const;
 
+    bool mutable m_logging;
     QOpenGLDebugLogger mutable m_glLogger;
     ShaderCache mutable m_cachedShaders;
+    GLint mutable m_maxTextureSize;
 };
 
 #endif

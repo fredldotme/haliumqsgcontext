@@ -29,9 +29,10 @@
 
 #include <sys/syscall.h>
 
-RenderContext::RenderContext(QSGContext* context) : QSGDefaultRenderContext(context)
+RenderContext::RenderContext(QSGContext* context) : QSGDefaultRenderContext(context),
+    m_logging(false)
 {
-	
+
 }
 
 void RenderContext::messageReceived(const QOpenGLDebugMessage &debugMessage)
@@ -42,6 +43,7 @@ void RenderContext::messageReceived(const QOpenGLDebugMessage &debugMessage)
 bool RenderContext::init() const
 {
     if (qEnvironmentVariableIsSet("LOMIRI_CONTEXT_OPENGL_LOG")) {
+        m_logging = true;
         connect(&m_glLogger, &QOpenGLDebugLogger::messageLogged, this, &RenderContext::messageReceived);
 
         QOpenGLContext *ctx = QOpenGLContext::currentContext();
@@ -94,6 +96,9 @@ QSGTexture* RenderContext::createTexture(const QImage &image, uint flags) const
     if (!colorShadersBuilt)
         goto default_method;
 
+    if (image.width() * image.height() > m_maxTextureSize)
+        goto default_method;
+
     texture = GrallocTextureCreator::createTexture(image, m_cachedShaders);
     if (texture) {
         // Render the color-corrected texture now if this thread has the GL context current,
@@ -113,6 +118,11 @@ default_method:
 bool RenderContext::compileColorShaders() const
 {
     QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
+
+    // Store the texture geometry limit to decide later on whether to use Gralloc or not
+    gl->glGetIntegerv(GL_MAX_TEXTURE_SIZE, &m_maxTextureSize);
+    if (m_logging)
+        qDebug() << "Max texture size:" << m_maxTextureSize;
 
     for (int i = (int)ColorShader::ColorShader_First; i < ColorShader::ColorShader_Count; i++) {
         auto program = std::make_shared<QOpenGLShaderProgram>();
