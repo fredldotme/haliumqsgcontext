@@ -59,11 +59,11 @@ enum AlphaBehavior {
 
 static const GLchar* COLOR_CONVERSION_VERTEX = {
     "#version 100\n"
-    "attribute mediump vec3 vertexCoord;\n"
-    "attribute mediump vec2 textureCoord;\n"
-    "varying mediump vec2 uv;\n"
-    "uniform mediump mat4 vertexTransform;\n"
-    "uniform mediump mat3 textureTransform;\n"
+    "attribute highp vec3 vertexCoord;\n"
+    "attribute highp vec2 textureCoord;\n"
+    "varying highp vec2 uv;\n"
+    "uniform highp mat4 vertexTransform;\n"
+    "uniform highp mat3 textureTransform;\n"
     "\n"
     "void main() {\n"
     "    uv = (textureTransform * vec3(textureCoord,1.0)).xy;\n"
@@ -73,8 +73,9 @@ static const GLchar* COLOR_CONVERSION_VERTEX = {
 
 static const GLchar* ARGB32_TO_RGBA8888 = {
     "#version 100\n"
-    "uniform sampler2D tex;\n"
-    "varying mediump vec2 uv;\n"
+    "#extension GL_OES_EGL_image_external : require\n"
+    "uniform samplerExternalOES tex;\n"
+    "varying highp vec2 uv;\n"
     "\n"
     "void main() {\n"
     "    gl_FragColor.argb = texture2D(tex, uv).abgr;\n"
@@ -83,8 +84,9 @@ static const GLchar* ARGB32_TO_RGBA8888 = {
 
 static const GLchar* FIXUP_RGB32 = {
     "#version 100\n"
-    "uniform sampler2D tex;\n"
-    "varying mediump vec2 uv;\n"
+    "#extension GL_OES_EGL_image_external : require\n"
+    "uniform samplerExternalOES tex;\n"
+    "varying highp vec2 uv;\n"
     "\n"
     "void main() {\n"
     "    gl_FragColor.argb = texture2D(tex, uv).abgr;\n"
@@ -126,14 +128,12 @@ public:
 
 private:
     GrallocTexture(struct graphic_buffer* handle, const QSize& size, const bool& hasAlphaChannel, ShaderBundle conversionShader);
-    GrallocTexture(struct graphic_buffer* handle, const QSize& size, const bool& hasAlphaChannel);
     ~GrallocTexture();
 
     void initializeEgl(struct graphic_buffer* handle);
     QMatrix4x4 targetTransform(const QSize& size) const;
 
     void renderShader(QOpenGLFunctions* gl) const;
-    void renderEglImage(QOpenGLFunctions* gl) const;
 
     PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR;
     PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR;
@@ -143,7 +143,6 @@ private:
     GLuint mutable m_texture;
     QSize m_size;
     bool m_hasAlphaChannel;
-    const bool m_usesShader;
     ShaderBundle m_shaderCode;
     bool mutable m_drawn, m_bound;
 

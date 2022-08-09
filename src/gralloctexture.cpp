@@ -53,7 +53,6 @@ int GrallocTextureCreator::convertFormat(const QImage& image, int& numChannels, 
     case QImage::Format_Indexed8:
         break;
     case QImage::Format_RGB32:
-        conversionShader = ColorShader_FixupRgb32;
         numChannels = 4;
         return HAL_PIXEL_FORMAT_RGBA_8888;
     case QImage::Format_ARGB32:
@@ -119,7 +118,7 @@ int GrallocTextureCreator::convertFormat(const QImage& image, int& numChannels, 
 GrallocTexture* GrallocTextureCreator::createTexture(const QImage& image, ShaderCache& cachedShaders)
 {
     int numChannels = 0;
-    ColorShader conversionShader = ColorShader_None;
+    ColorShader conversionShader = ColorShader_FixupRgb32;
     AlphaBehavior alphaBehavior = AlphaBehavior_None;
 
     const int format = convertFormat(image, numChannels, conversionShader, alphaBehavior);
@@ -160,10 +159,11 @@ GrallocTexture* GrallocTextureCreator::createTexture(const QImage& image, Shader
 
         const QSize imageSize = image.size();
         const bool hasAlphaChannel = image.hasAlphaChannel();
-        if (conversionShader == ColorShader_None)
-            texture = new GrallocTexture(handle, imageSize, hasAlphaChannel);
-        else
+        try {
             texture = new GrallocTexture(handle, imageSize, hasAlphaChannel, cachedShaders[conversionShader]);
+        } catch (const std::exception& ex) {
+            texture = nullptr;
+        }
     } else {
         graphic_buffer_unlock(handle);
     }
@@ -174,16 +174,9 @@ GrallocTexture* GrallocTextureCreator::createTexture(const QImage& image, Shader
     return texture;
 }
 
-GrallocTexture::GrallocTexture(struct graphic_buffer* handle, const QSize& size, const bool& hasAlphaChannel) :
-    QSGTexture(), m_image(EGL_NO_IMAGE_KHR), m_size(size), m_texture(0),
-    m_hasAlphaChannel(hasAlphaChannel), m_usesShader(false), m_drawn(false), m_bound(false)
-{
-    initializeEgl(handle);
-}
-
 GrallocTexture::GrallocTexture(struct graphic_buffer* handle, const QSize& size, const bool& hasAlphaChannel, ShaderBundle conversionShader) :
     QSGTexture(), m_image(EGL_NO_IMAGE_KHR), m_size(size), m_texture(0),
-    m_hasAlphaChannel(hasAlphaChannel), m_shaderCode(conversionShader), m_usesShader(true), m_drawn(false), m_bound(false)
+    m_hasAlphaChannel(hasAlphaChannel), m_shaderCode(conversionShader), m_drawn(false), m_bound(false)
 {
     initializeEgl(handle);
 }
@@ -212,7 +205,7 @@ void GrallocTexture::initializeEgl(struct graphic_buffer* handle)
     }
 }
 
-GrallocTexture::GrallocTexture() : m_usesShader(false), m_drawn(false)
+GrallocTexture::GrallocTexture() : m_drawn(false)
 {
 }
 
@@ -231,9 +224,6 @@ GrallocTexture::~GrallocTexture()
 
 int GrallocTexture::textureId() const
 {
-    // In case the texture was not already created, due to being created in a non-current thread
-    // then catch up and do so now right before the textureId is being asked for.
-    updateTexture();
     return m_texture;
 }
 
@@ -291,25 +281,25 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
     gl->glClearColor(0, 0, 0, 0);
     gl->glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    QMutexLocker lock(m_shaderCode.mutex.get());
-    m_shaderCode.program->bind();
-
     QOpenGLVertexArrayObject vao;
     QOpenGLBuffer vertexBuffer;
     QOpenGLBuffer textureBuffer;
 
     gl->glActiveTexture(GL_TEXTURE0 + textureUnit);
     gl->glGenTextures(1, &tmpTexture);
-    gl->glBindTexture(GL_TEXTURE_2D, tmpTexture);
-    gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-    gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-
-    // "Dump" the EGLImage onto the texture
-    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, m_image);
+    gl->glBindTexture(GL_TEXTURE_EXTERNAL_OES, tmpTexture);
+    gl->glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    gl->glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    gl->glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    gl->glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
     gl->glViewport(0, 0, width, height);
+
+    // "Dump" the EGLImage onto the texture
+    glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, m_image);
+
+    QMutexLocker lock(m_shaderCode.mutex.get());
+    m_shaderCode.program->bind();
 
     vao.create();
     vao.bind();
@@ -352,14 +342,6 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
     m_texture = fbo.takeTexture();
 }
 
-void GrallocTexture::renderEglImage(QOpenGLFunctions* gl) const
-{
-    gl->glGenTextures(1, &m_texture);
-    gl->glBindTexture(GL_TEXTURE_2D, m_texture);
-    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, m_image);
-    gl->glBindTexture(GL_TEXTURE_2D, 0);
-}
-
 QMatrix4x4 GrallocTexture::targetTransform(const QSize& size) const
 {
     const QRect target = QRect(QPoint(0, 0), size);
@@ -385,11 +367,7 @@ bool GrallocTexture::updateTexture() const
 {
     if (m_texture == 0) {
         QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
-        if (m_usesShader) {
-            renderShader(gl);
-        } else {
-            renderEglImage(gl);
-        }
+        renderShader(gl);
         return true;
     }
     return false;
@@ -398,6 +376,10 @@ bool GrallocTexture::updateTexture() const
 void GrallocTexture::bind()
 {
     m_bound = true;
+
+    // In case the texture was not already created, due to being created in a non-current thread
+    // then catch up and do so now right before the texture is being asked for.
+    updateTexture();
 
     QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
     gl->glBindTexture(GL_TEXTURE_2D, m_texture);
