@@ -25,6 +25,10 @@
 
 #include <exception>
 
+#ifndef GL_TEXTURE_EXTERNAL_OES
+#define GL_TEXTURE_EXTERNAL_OES 0x8D65
+#endif
+
 extern "C" {
 void hybris_ui_initialize();
 }
