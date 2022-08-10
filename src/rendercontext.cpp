@@ -27,8 +27,6 @@
 #include <dlfcn.h>
 #include <hybris/common/dlfcn.h>
 
-#include <sys/syscall.h>
-
 RenderContext::RenderContext(QSGContext* context) : QSGDefaultRenderContext(context),
     m_logging(false)
 {
@@ -53,7 +51,6 @@ bool RenderContext::init() const
 
     // Attempt to get FIFO scheduling from mechanicd
     {
-        const int threadId = syscall(SYS_gettid);
         const QString connName = QStringLiteral("haliumqsgcontext");
 
         QDBusConnection shortConnection = QDBusConnection::connectToBus(QDBusConnection::SystemBus, connName);
@@ -62,9 +59,9 @@ bool RenderContext::init() const
                                  QStringLiteral("org.halium.mechanicd.Scheduling"),
                                  shortConnection);
 
-        QDBusReply<void> reply = interface.call(QStringLiteral("requestSchedulingChange"), threadId);
+        QDBusReply<void> reply = interface.call(QStringLiteral("requestSchedulingChange"));
         if (!reply.isValid()) {
-            qDebug() << "Failed to acquire realtime scheduling on thread" << threadId << reply.error().message();
+            qDebug() << "Failed to acquire realtime scheduling on render thread" << reply.error().message();
         }
         QDBusConnection::disconnectFromBus(connName);
     }
@@ -81,7 +78,8 @@ bool RenderContext::init() const
             return false;
 
         hybris_dlclose(handle);
-        qDebug() << "Using libui_compat_layer for textures";
+        if (m_logging)
+            qDebug() << "Using libui_compat_layer for textures";
     }
 
     return compileColorShaders();
