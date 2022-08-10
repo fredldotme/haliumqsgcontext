@@ -21,7 +21,6 @@
 #include <QOpenGLBuffer>
 #include <QOpenGLTexture>
 #include <QMutexLocker>
-#include <QMatrix3x3>
 
 #include <exception>
 
@@ -35,19 +34,17 @@ void hybris_ui_initialize();
 
 uint32_t GrallocTextureCreator::convertUsage(const QImage& image)
 {
-    return GRALLOC_USAGE_SW_READ_NEVER | GRALLOC_USAGE_HW_RENDER |
-           GRALLOC_USAGE_HW_TEXTURE;
+    return GRALLOC_USAGE_SW_READ_NEVER | GRALLOC_USAGE_SW_READ_RARELY | GRALLOC_USAGE_HW_TEXTURE;
 }
 
 uint32_t GrallocTextureCreator::convertLockUsage(const QImage& image)
 {
-    return GRALLOC_USAGE_SW_WRITE_RARELY | GRALLOC_USAGE_HW_RENDER |
-           GRALLOC_USAGE_HW_TEXTURE;
+    return GRALLOC_USAGE_SW_WRITE_RARELY;
 }
 
 int GrallocTextureCreator::convertFormat(const QImage& image, int& numChannels, ColorShader& conversionShader, AlphaBehavior& alphaBehavior)
 {
-    //qInfo() << "format:" << image.format();
+    //qInfo() << "format:" << image;
 
     switch (image.format()) {
     case QImage::Format_Mono:
@@ -58,15 +55,15 @@ int GrallocTextureCreator::convertFormat(const QImage& image, int& numChannels, 
         break;
     case QImage::Format_RGB32:
         numChannels = 4;
-        return HAL_PIXEL_FORMAT_RGBA_8888;
+        return HAL_PIXEL_FORMAT_BGRA_8888;
     case QImage::Format_ARGB32:
-        conversionShader = ColorShader_ArgbToRgba;
+        //conversionShader = ColorShader_ArgbToRgba;
         numChannels = 4;
-        return HAL_PIXEL_FORMAT_RGBA_8888;
+        return HAL_PIXEL_FORMAT_BGRA_8888;
     case QImage::Format_ARGB32_Premultiplied:
-        conversionShader = ColorShader_ArgbToRgba;
+        //conversionShader = ColorShader_ArgbToRgba;
         numChannels = 4;
-        return HAL_PIXEL_FORMAT_RGBA_8888;
+        return HAL_PIXEL_FORMAT_BGRA_8888;
     case QImage::Format_RGB16:
         break;
     case QImage::Format_ARGB8565_Premultiplied:
@@ -122,7 +119,7 @@ int GrallocTextureCreator::convertFormat(const QImage& image, int& numChannels, 
 GrallocTexture* GrallocTextureCreator::createTexture(const QImage& image, ShaderCache& cachedShaders)
 {
     int numChannels = 0;
-    ColorShader conversionShader = ColorShader_FixupRgb32;
+    ColorShader conversionShader = ColorShader_Passthrough;
     AlphaBehavior alphaBehavior = AlphaBehavior_None;
 
     const int format = convertFormat(image, numChannels, conversionShader, alphaBehavior);
@@ -151,13 +148,21 @@ GrallocTexture* GrallocTextureCreator::createTexture(const QImage& image, Shader
 
     if (vmemAddr) {
         int bytesPerLine = image.bytesPerLine();
+        const int grallocBytesPerLine = stride * numChannels;
+        const int copyBytesPerLine = qMin(bytesPerLine, grallocBytesPerLine);
         const uchar* sourceAddr = image.constBits();
         char* data = (char*)vmemAddr;
 
-        for (int i = 0; i < height; i++) {
-            void* dst = (vmemAddr + (stride * numChannels * i));
-            const void* src = (sourceAddr + (bytesPerLine * i));
-            memcpy(dst, src, bytesPerLine);
+        if (bytesPerLine != grallocBytesPerLine) {
+            qDebug() << "1" << bytesPerLine << grallocBytesPerLine << "(" << stride << numChannels << ")";
+            for (int i = 0; i < height; i++) {
+                void* dst = (vmemAddr + (grallocBytesPerLine * i));
+                const void* src = image.constScanLine(i);
+                memcpy(dst, src, copyBytesPerLine);
+            }
+        } else {
+            qDebug() << "2";
+            memcpy(vmemAddr, (const void*)sourceAddr, image.sizeInBytes());
         }
         graphic_buffer_unlock(handle);
 
@@ -274,6 +279,7 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
     QOpenGLFramebufferObjectFormat format;
     format.setAttachment(QOpenGLFramebufferObject::Depth);
     format.setSamples(0);
+    format.setMipmap(false);
     QOpenGLFramebufferObject fbo(width, height, format);
     if (!fbo.isValid()) {
         qWarning() << "Failed to set up FBO";
@@ -284,16 +290,20 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
 
     gl->glClearColor(0, 0, 0, 0);
     gl->glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    gl->glViewport(0, 0, width, height);
 
     QOpenGLVertexArrayObject vao;
     QOpenGLBuffer vertexBuffer;
     QOpenGLBuffer textureBuffer;
 
+    QMutexLocker lock(m_shaderCode.mutex.get());
+    m_shaderCode.program->bind();
+
     gl->glActiveTexture(GL_TEXTURE0 + textureUnit);
     gl->glGenTextures(1, &tmpTexture);
     gl->glBindTexture(GL_TEXTURE_EXTERNAL_OES, tmpTexture);
-    gl->glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    gl->glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    gl->glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    gl->glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     gl->glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     gl->glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
@@ -301,9 +311,6 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
 
     // "Dump" the EGLImage onto the texture
     glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, m_image);
-
-    QMutexLocker lock(m_shaderCode.mutex.get());
-    m_shaderCode.program->bind();
 
     vao.create();
     vao.bind();
@@ -322,10 +329,6 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
     m_shaderCode.program->enableAttributeArray("textureCoord");
     textureBuffer.release();
 
-    QMatrix4x4 vertexTransform = targetTransform(fbo.size());
-    m_shaderCode.program->setUniformValue("vertexTransform", vertexTransform);
-    QMatrix3x3 textureTransform;
-    m_shaderCode.program->setUniformValue("textureTransform", textureTransform);
     m_shaderCode.program->setUniformValue("tex", textureUnit);
 
     gl->glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -338,33 +341,11 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
     vao.release();
 
     m_shaderCode.program->release();
-    fbo.release();
 
     gl->glActiveTexture(GL_TEXTURE0);
     gl->glDeleteTextures(1, &tmpTexture);
 
     m_texture = fbo.takeTexture();
-}
-
-QMatrix4x4 GrallocTexture::targetTransform(const QSize& size) const
-{
-    const QRect target = QRect(QPoint(0, 0), size);
-    const QRect viewport = target;
-
-    qreal x_scale = target.width() / viewport.width();
-    qreal y_scale = target.height() / viewport.height();
-
-    const QPointF relative_to_viewport = target.topLeft() - viewport.topLeft();
-    qreal x_translate = x_scale - 1 + ((relative_to_viewport.x() / viewport.width()) * 2);
-    qreal y_translate = -y_scale + 1 - ((relative_to_viewport.y() / viewport.height()) * 2);
-
-    QMatrix4x4 matrix;
-    matrix(0,3) = x_translate;
-    matrix(1,3) = y_translate;
-
-    matrix(0,0) = x_scale;
-    matrix(1,1) = y_scale;
-    return matrix;
 }
 
 bool GrallocTexture::updateTexture() const

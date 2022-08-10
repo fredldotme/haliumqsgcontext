@@ -44,10 +44,10 @@
 enum ColorShader {
     ColorShader_None = -1,
     ColorShader_ArgbToRgba,
-    ColorShader_FixupRgb32,
+    ColorShader_Passthrough,
 
     ColorShader_First = ColorShader_ArgbToRgba,
-    ColorShader_Last = ColorShader_FixupRgb32,
+    ColorShader_Last = ColorShader_Passthrough,
     ColorShader_Count =  + ColorShader_Last + 1
 };
 
@@ -62,12 +62,10 @@ static const GLchar* COLOR_CONVERSION_VERTEX = {
     "attribute highp vec3 vertexCoord;\n"
     "attribute highp vec2 textureCoord;\n"
     "varying highp vec2 uv;\n"
-    "uniform highp mat4 vertexTransform;\n"
-    "uniform highp mat3 textureTransform;\n"
     "\n"
     "void main() {\n"
-    "    uv = (textureTransform * vec3(textureCoord,1.0)).xy;\n"
-    "    gl_Position = vertexTransform * vec4(vertexCoord,1.0);\n"
+    "    uv = textureCoord.xy;\n"
+    "    gl_Position = vec4(vertexCoord,1.0);\n"
     "}\n"
 };
 
@@ -82,14 +80,14 @@ static const GLchar* ARGB32_TO_RGBA8888 = {
     "}\n"
 };
 
-static const GLchar* FIXUP_RGB32 = {
+static const GLchar* PASSTHROUGH_SHADER = {
     "#version 100\n"
     "#extension GL_OES_EGL_image_external : require\n"
     "uniform samplerExternalOES tex;\n"
     "varying highp vec2 uv;\n"
     "\n"
     "void main() {\n"
-    "    gl_FragColor.argb = texture2D(tex, uv).abgr;\n"
+    "    gl_FragColor.argb = texture2D(tex, uv).argb;\n"
     "}\n"
 };
 
@@ -131,7 +129,6 @@ private:
     ~GrallocTexture();
 
     void initializeEgl(struct graphic_buffer* handle);
-    QMatrix4x4 targetTransform(const QSize& size) const;
 
     void renderShader(QOpenGLFunctions* gl) const;
 

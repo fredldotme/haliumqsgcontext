@@ -19,6 +19,7 @@
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
 #include <QThread>
+#include <QtMath>
 #include <QMutex>
 #include <QDBusConnection>
 #include <QDBusInterface>
@@ -46,7 +47,7 @@ bool RenderContext::init() const
 
         QOpenGLContext *ctx = QOpenGLContext::currentContext();
         m_glLogger.initialize();
-        m_glLogger.startLogging();
+        m_glLogger.startLogging(QOpenGLDebugLogger::SynchronousLogging);
     }
 
     // Attempt to get FIFO scheduling from mechanicd
@@ -66,6 +67,18 @@ bool RenderContext::init() const
         QDBusConnection::disconnectFromBus(connName);
     }
 
+    // Check for worrysome GPU vendor
+    static const std::vector<std::string> gpuBlocklist = {
+        "Imagination Technologies"
+    };
+
+    const uchar* graphicsVendor = glGetString(GL_VENDOR);
+    if (graphicsVendor && std::find(gpuBlocklist.begin(), gpuBlocklist.end(), std::string(reinterpret_cast<const char*>(graphicsVendor))) != gpuBlocklist.end()) {
+        if (m_logging)
+            qWarning() << "Worrysome GPU vendor detected, only offering partial functionality.";
+        return false;
+    }
+
     // Check whether the prerequisite library can be dlopened
     {
 #ifdef __LP64__
@@ -78,8 +91,6 @@ bool RenderContext::init() const
             return false;
 
         hybris_dlclose(handle);
-        if (m_logging)
-            qDebug() << "Using libui_compat_layer for textures";
     }
 
     return compileColorShaders();
@@ -94,7 +105,7 @@ QSGTexture* RenderContext::createTexture(const QImage &image, uint flags) const
     if (!colorShadersBuilt)
         goto default_method;
 
-    if (image.width() * image.height() > m_maxTextureSize)
+    if (image.width() > m_maxTextureSize || image.height() > m_maxTextureSize)
         goto default_method;
 
     texture = GrallocTextureCreator::createTexture(image, m_cachedShaders);
@@ -119,6 +130,7 @@ bool RenderContext::compileColorShaders() const
 
     // Store the texture geometry limit to decide later on whether to use Gralloc or not
     gl->glGetIntegerv(GL_MAX_TEXTURE_SIZE, &m_maxTextureSize);
+
     if (m_logging)
         qDebug() << "Max texture size:" << m_maxTextureSize;
 
@@ -139,8 +151,8 @@ bool RenderContext::compileColorShaders() const
         case ColorShader_ArgbToRgba:
             success = program->addCacheableShaderFromSourceCode(QOpenGLShader::Fragment, ARGB32_TO_RGBA8888);
             break;
-        case ColorShader_FixupRgb32:
-            success = program->addCacheableShaderFromSourceCode(QOpenGLShader::Fragment, FIXUP_RGB32);
+        case ColorShader_Passthrough:
+            success = program->addCacheableShaderFromSourceCode(QOpenGLShader::Fragment, PASSTHROUGH_SHADER);
             break;
         default:
             qWarning() << "No color shader type" << i;
@@ -164,5 +176,9 @@ bool RenderContext::compileColorShaders() const
 
         m_cachedShaders[(ColorShader)i] = bundle;
     }
+
+    if (m_logging)
+        qDebug() << "Using libui_compat_layer & shaders for Qt textures";
+
     return true;
 }
