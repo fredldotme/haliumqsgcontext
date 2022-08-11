@@ -148,11 +148,14 @@ bool RenderContext::compileColorShaders() const
         }
 
         switch (i) {
-        case ColorShader_ArgbToRgba:
-            success = program->addCacheableShaderFromSourceCode(QOpenGLShader::Fragment, ARGB32_TO_RGBA8888);
-            break;
         case ColorShader_Passthrough:
             success = program->addCacheableShaderFromSourceCode(QOpenGLShader::Fragment, PASSTHROUGH_SHADER);
+            break;
+        case ColorShader_FlipColorChannels:
+            success = program->addCacheableShaderFromSourceCode(QOpenGLShader::Fragment, FLIP_COLOR_CHANNELS_SHADER);
+            break;
+        case ColorShader_FlipColorChannelsWithAlpha:
+            success = program->addCacheableShaderFromSourceCode(QOpenGLShader::Fragment, FLIP_COLOR_CHANNELS_WITH_ALPHA_SHADER);
             break;
         default:
             qWarning() << "No color shader type" << i;
@@ -173,7 +176,6 @@ bool RenderContext::compileColorShaders() const
         }
 
         ShaderBundle bundle{program, mutex};
-
         m_cachedShaders[(ColorShader)i] = bundle;
     }
 

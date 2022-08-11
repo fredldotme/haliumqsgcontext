@@ -34,7 +34,7 @@ void hybris_ui_initialize();
 
 uint32_t GrallocTextureCreator::convertUsage(const QImage& image)
 {
-    return GRALLOC_USAGE_SW_READ_NEVER | GRALLOC_USAGE_SW_READ_RARELY | GRALLOC_USAGE_HW_TEXTURE;
+    return GRALLOC_USAGE_SW_READ_RARELY | GRALLOC_USAGE_SW_WRITE_RARELY | GRALLOC_USAGE_HW_TEXTURE | GRALLOC_USAGE_HW_RENDER;
 }
 
 uint32_t GrallocTextureCreator::convertLockUsage(const QImage& image)
@@ -42,7 +42,7 @@ uint32_t GrallocTextureCreator::convertLockUsage(const QImage& image)
     return GRALLOC_USAGE_SW_WRITE_RARELY;
 }
 
-int GrallocTextureCreator::convertFormat(const QImage& image, int& numChannels, ColorShader& conversionShader, AlphaBehavior& alphaBehavior)
+int GrallocTextureCreator::convertFormat(const QImage& image, int& numChannels, ColorShader& conversionShader)
 {
     //qInfo() << "format:" << image;
 
@@ -57,11 +57,9 @@ int GrallocTextureCreator::convertFormat(const QImage& image, int& numChannels, 
         numChannels = 4;
         return HAL_PIXEL_FORMAT_BGRA_8888;
     case QImage::Format_ARGB32:
-        //conversionShader = ColorShader_ArgbToRgba;
         numChannels = 4;
         return HAL_PIXEL_FORMAT_BGRA_8888;
     case QImage::Format_ARGB32_Premultiplied:
-        //conversionShader = ColorShader_ArgbToRgba;
         numChannels = 4;
         return HAL_PIXEL_FORMAT_BGRA_8888;
     case QImage::Format_RGB16:
@@ -77,6 +75,7 @@ int GrallocTextureCreator::convertFormat(const QImage& image, int& numChannels, 
     case QImage::Format_ARGB8555_Premultiplied:
         break;
     case QImage::Format_RGB888:
+        conversionShader = ColorShader_FlipColorChannels;
         numChannels = 3;
         return HAL_PIXEL_FORMAT_RGB_888;
     case QImage::Format_RGB444:
@@ -84,12 +83,15 @@ int GrallocTextureCreator::convertFormat(const QImage& image, int& numChannels, 
     case QImage::Format_ARGB4444_Premultiplied:
         break;
     case QImage::Format_RGBX8888:
+        conversionShader = ColorShader_FlipColorChannelsWithAlpha;
         numChannels = 4;
         return HAL_PIXEL_FORMAT_RGBX_8888;
     case QImage::Format_RGBA8888:
+        conversionShader = ColorShader_FlipColorChannelsWithAlpha;
         numChannels = 4;
         return HAL_PIXEL_FORMAT_RGBA_8888;
     case QImage::Format_RGBA8888_Premultiplied:
+        conversionShader = ColorShader_FlipColorChannelsWithAlpha;
         numChannels = 4;
         return HAL_PIXEL_FORMAT_RGBA_8888;
     case QImage::Format_BGR30:
@@ -105,11 +107,17 @@ int GrallocTextureCreator::convertFormat(const QImage& image, int& numChannels, 
     case QImage::Format_Grayscale8:
         break;
     case QImage::Format_RGBX64:
-        break;
+        conversionShader = ColorShader_FlipColorChannelsWithAlpha;
+        numChannels = 8; // It's not 8 channels per se but 4 channels double the usual size
+        return HAL_PIXEL_FORMAT_RGBA_FP16;
     case QImage::Format_RGBA64:
-        break;
+        conversionShader = ColorShader_FlipColorChannelsWithAlpha;
+        numChannels = 8;
+        return HAL_PIXEL_FORMAT_RGBA_FP16;
     case QImage::Format_RGBA64_Premultiplied:
-        break;
+        conversionShader = ColorShader_FlipColorChannelsWithAlpha;
+        numChannels = 8;
+        return HAL_PIXEL_FORMAT_RGBA_FP16;
     default:
         break;
     }
@@ -120,9 +128,8 @@ GrallocTexture* GrallocTextureCreator::createTexture(const QImage& image, Shader
 {
     int numChannels = 0;
     ColorShader conversionShader = ColorShader_Passthrough;
-    AlphaBehavior alphaBehavior = AlphaBehavior_None;
 
-    const int format = convertFormat(image, numChannels, conversionShader, alphaBehavior);
+    const int format = convertFormat(image, numChannels, conversionShader);
     if (format < 0) {
         qDebug() << "Unknown color format" << image.format();
         return nullptr;
@@ -147,21 +154,19 @@ GrallocTexture* GrallocTextureCreator::createTexture(const QImage& image, Shader
     GrallocTexture* texture = nullptr;
 
     if (vmemAddr) {
-        int bytesPerLine = image.bytesPerLine();
+        const int bytesPerLine = image.bytesPerLine();
         const int grallocBytesPerLine = stride * numChannels;
         const int copyBytesPerLine = qMin(bytesPerLine, grallocBytesPerLine);
         const uchar* sourceAddr = image.constBits();
         char* data = (char*)vmemAddr;
 
         if (bytesPerLine != grallocBytesPerLine) {
-            qDebug() << "1" << bytesPerLine << grallocBytesPerLine << "(" << stride << numChannels << ")";
             for (int i = 0; i < height; i++) {
                 void* dst = (vmemAddr + (grallocBytesPerLine * i));
                 const void* src = image.constScanLine(i);
                 memcpy(dst, src, copyBytesPerLine);
             }
         } else {
-            qDebug() << "2";
             memcpy(vmemAddr, (const void*)sourceAddr, image.sizeInBytes());
         }
         graphic_buffer_unlock(handle);
@@ -185,7 +190,7 @@ GrallocTexture* GrallocTextureCreator::createTexture(const QImage& image, Shader
 
 GrallocTexture::GrallocTexture(struct graphic_buffer* handle, const QSize& size, const bool& hasAlphaChannel, ShaderBundle conversionShader) :
     QSGTexture(), m_image(EGL_NO_IMAGE_KHR), m_size(size), m_texture(0),
-    m_hasAlphaChannel(hasAlphaChannel), m_shaderCode(conversionShader), m_drawn(false), m_bound(false)
+    m_hasAlphaChannel(hasAlphaChannel), m_shaderCode(conversionShader), m_bound(false), m_valid(true)
 {
     initializeEgl(handle);
 }
@@ -214,7 +219,7 @@ void GrallocTexture::initializeEgl(struct graphic_buffer* handle)
     }
 }
 
-GrallocTexture::GrallocTexture() : m_drawn(false)
+GrallocTexture::GrallocTexture() : m_valid(false)
 {
 }
 

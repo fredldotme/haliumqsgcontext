@@ -42,19 +42,14 @@
 #undef Bool
 
 enum ColorShader {
-    ColorShader_None = -1,
-    ColorShader_ArgbToRgba,
+    ColorShader_Unknown = -1,
     ColorShader_Passthrough,
+    ColorShader_FlipColorChannels,
+    ColorShader_FlipColorChannelsWithAlpha,
 
-    ColorShader_First = ColorShader_ArgbToRgba,
-    ColorShader_Last = ColorShader_Passthrough,
+    ColorShader_First = ColorShader_Passthrough,
+    ColorShader_Last = ColorShader_FlipColorChannelsWithAlpha,
     ColorShader_Count =  + ColorShader_Last + 1
-};
-
-enum AlphaBehavior {
-    AlphaBehavior_None = 0,
-    AlphaBehavior_Premultiply,
-    AlphaBehavior_Repremultiply
 };
 
 static const GLchar* COLOR_CONVERSION_VERTEX = {
@@ -69,17 +64,6 @@ static const GLchar* COLOR_CONVERSION_VERTEX = {
     "}\n"
 };
 
-static const GLchar* ARGB32_TO_RGBA8888 = {
-    "#version 100\n"
-    "#extension GL_OES_EGL_image_external : require\n"
-    "uniform samplerExternalOES tex;\n"
-    "varying highp vec2 uv;\n"
-    "\n"
-    "void main() {\n"
-    "    gl_FragColor.argb = texture2D(tex, uv).abgr;\n"
-    "}\n"
-};
-
 static const GLchar* PASSTHROUGH_SHADER = {
     "#version 100\n"
     "#extension GL_OES_EGL_image_external : require\n"
@@ -88,6 +72,28 @@ static const GLchar* PASSTHROUGH_SHADER = {
     "\n"
     "void main() {\n"
     "    gl_FragColor.argb = texture2D(tex, uv).argb;\n"
+    "}\n"
+};
+
+static const GLchar* FLIP_COLOR_CHANNELS_SHADER = {
+    "#version 100\n"
+    "#extension GL_OES_EGL_image_external : require\n"
+    "uniform samplerExternalOES tex;\n"
+    "varying highp vec2 uv;\n"
+    "\n"
+    "void main() {\n"
+    "    gl_FragColor.rgb = texture2D(tex, uv).bgr;\n"
+    "}\n"
+};
+
+static const GLchar* FLIP_COLOR_CHANNELS_WITH_ALPHA_SHADER = {
+    "#version 100\n"
+    "#extension GL_OES_EGL_image_external : require\n"
+    "uniform samplerExternalOES tex;\n"
+    "varying highp vec2 uv;\n"
+    "\n"
+    "void main() {\n"
+    "    gl_FragColor.argb = texture2D(tex, uv).bgra;\n"
     "}\n"
 };
 
@@ -107,7 +113,7 @@ public:
 private:
     static uint32_t convertUsage(const QImage& image);
     static uint32_t convertLockUsage(const QImage& image);
-    static int convertFormat(const QImage& image, int& numChannels, ColorShader& conversionShader, AlphaBehavior& premultiply);
+    static int convertFormat(const QImage& image, int& numChannels, ColorShader& conversionShader);
 };
 
 class GrallocTexture : public QSGTexture
@@ -141,7 +147,8 @@ private:
     QSize m_size;
     bool m_hasAlphaChannel;
     ShaderBundle m_shaderCode;
-    bool mutable m_drawn, m_bound;
+    bool mutable m_bound;
+    bool mutable m_valid;
 
     friend class GrallocTextureCreator;
 };
