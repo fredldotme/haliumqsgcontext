@@ -42,8 +42,7 @@
 #undef Bool
 
 enum ColorShader {
-    ColorShader_Unknown = -1,
-    ColorShader_Passthrough,
+    ColorShader_None = 0,
     ColorShader_FlipColorChannels,
     ColorShader_FlipColorChannelsWithAlpha,
 

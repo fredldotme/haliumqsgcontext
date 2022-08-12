@@ -117,11 +117,11 @@ QSGTexture* RenderContext::createTexture(const QImage &image, uint flags) const
 
     if (eglImageOnly) {
         int numChannels = 0;
-        ColorShader conversionShader = ColorShader::ColorShader_Passthrough;
+        ColorShader conversionShader = ColorShader::ColorShader_None;
         GrallocTextureCreator::convertFormat(image, numChannels, conversionShader);
 
         // It is safe to do allocations using gralloc without use of shaders in this case
-        if (conversionShader == ColorShader::ColorShader_Passthrough)
+        if (conversionShader == ColorShader::ColorShader_None)
             goto gralloc_method;
         else
             goto default_method;
@@ -158,7 +158,7 @@ bool RenderContext::compileColorShaders() const
         qDebug() << "Max texture size:" << m_maxTextureSize;
 
     ShaderBundle emptyBundle{nullptr, nullptr};
-    m_cachedShaders[ColorShader_Passthrough] = emptyBundle;
+    m_cachedShaders[ColorShader_None] = emptyBundle;
 
     for (int i = (int)ColorShader::ColorShader_First; i < ColorShader::ColorShader_Count; i++) {
         auto program = std::make_shared<QOpenGLShaderProgram>();

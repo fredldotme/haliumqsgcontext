@@ -127,7 +127,7 @@ int GrallocTextureCreator::convertFormat(const QImage& image, int& numChannels, 
 GrallocTexture* GrallocTextureCreator::createTexture(const QImage& image, ShaderCache& cachedShaders)
 {
     int numChannels = 0;
-    ColorShader conversionShader = ColorShader_Passthrough;
+    ColorShader conversionShader = ColorShader_None;
 
     const int format = convertFormat(image, numChannels, conversionShader);
     if (format < 0) {
