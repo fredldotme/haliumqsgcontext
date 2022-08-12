@@ -108,15 +108,15 @@ int GrallocTextureCreator::convertFormat(const QImage& image, int& numChannels, 
         break;
     case QImage::Format_RGBX64:
         conversionShader = ColorShader_FlipColorChannelsWithAlpha;
-        numChannels = 8; // It's not 8 channels per se but 4 channels double the usual size
+        numChannels = 4;
         return HAL_PIXEL_FORMAT_RGBA_FP16;
     case QImage::Format_RGBA64:
         conversionShader = ColorShader_FlipColorChannelsWithAlpha;
-        numChannels = 8;
+        numChannels = 4;
         return HAL_PIXEL_FORMAT_RGBA_FP16;
     case QImage::Format_RGBA64_Premultiplied:
         conversionShader = ColorShader_FlipColorChannelsWithAlpha;
-        numChannels = 8;
+        numChannels = 4;
         return HAL_PIXEL_FORMAT_RGBA_FP16;
     default:
         break;
