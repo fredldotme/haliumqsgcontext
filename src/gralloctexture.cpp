@@ -34,7 +34,7 @@ void hybris_ui_initialize();
 
 uint32_t GrallocTextureCreator::convertUsage(const QImage& image)
 {
-    return GRALLOC_USAGE_SW_READ_RARELY | GRALLOC_USAGE_SW_WRITE_RARELY | GRALLOC_USAGE_HW_TEXTURE | GRALLOC_USAGE_HW_RENDER;
+    return GRALLOC_USAGE_SW_READ_NEVER | GRALLOC_USAGE_SW_WRITE_NEVER | GRALLOC_USAGE_HW_TEXTURE;
 }
 
 uint32_t GrallocTextureCreator::convertLockUsage(const QImage& image)
@@ -353,10 +353,25 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
     m_texture = fbo.takeTexture();
 }
 
+void GrallocTexture::bindImageOnly(QOpenGLFunctions* gl) const
+{
+    gl->glBindTexture(GL_TEXTURE_2D, m_texture);
+    gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, m_image);
+}
+
 bool GrallocTexture::updateTexture() const
 {
-    if (m_texture == 0) {
-        QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
+    QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
+
+    // Special-case passthrough mode
+    if (!m_shaderCode.program.get() && m_texture == 0) {
+        gl->glGenTextures(1, &m_texture);
+        return true;
+    } else if (m_shaderCode.program.get() && m_texture == 0) {
         renderShader(gl);
         return true;
     }
@@ -367,10 +382,15 @@ void GrallocTexture::bind()
 {
     m_bound = true;
 
+    QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
+
     // In case the texture was not already created, due to being created in a non-current thread
     // then catch up and do so now right before the texture is being asked for.
     updateTexture();
 
-    QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
-    gl->glBindTexture(GL_TEXTURE_2D, m_texture);
+    if (m_shaderCode.program.get()) {
+        gl->glBindTexture(GL_TEXTURE_2D, m_texture);
+    } else {
+        bindImageOnly(gl);
+    }
 }

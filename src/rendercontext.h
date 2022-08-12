@@ -32,6 +32,12 @@ public:
     QSGTexture* createTexture(const QImage &image, uint flags = QSGRenderContext::CreateTexture_Alpha) const override;
 
 private:
+    enum Quirk {
+        NoQuirk = 0x0,
+        DisableConversionShaders = 0x1
+    };
+    Q_DECLARE_FLAGS(Quirks, Quirk)
+
     void messageReceived(const QOpenGLDebugMessage &debugMessage);
 
     bool compileColorShaders() const;
@@ -41,6 +47,8 @@ private:
     QOpenGLDebugLogger mutable m_glLogger;
     ShaderCache mutable m_cachedShaders;
     GLint mutable m_maxTextureSize;
+    bool mutable m_libuiFound;
+    RenderContext::Quirks mutable m_quirks;
 };
 
 #endif

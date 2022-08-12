@@ -47,7 +47,7 @@ enum ColorShader {
     ColorShader_FlipColorChannels,
     ColorShader_FlipColorChannelsWithAlpha,
 
-    ColorShader_First = ColorShader_Passthrough,
+    ColorShader_First = ColorShader_FlipColorChannels,
     ColorShader_Last = ColorShader_FlipColorChannelsWithAlpha,
     ColorShader_Count =  + ColorShader_Last + 1
 };
@@ -61,17 +61,6 @@ static const GLchar* COLOR_CONVERSION_VERTEX = {
     "void main() {\n"
     "    uv = textureCoord.xy;\n"
     "    gl_Position = vec4(vertexCoord,1.0);\n"
-    "}\n"
-};
-
-static const GLchar* PASSTHROUGH_SHADER = {
-    "#version 100\n"
-    "#extension GL_OES_EGL_image_external : require\n"
-    "uniform samplerExternalOES tex;\n"
-    "varying highp vec2 uv;\n"
-    "\n"
-    "void main() {\n"
-    "    gl_FragColor.argb = texture2D(tex, uv).argb;\n"
     "}\n"
 };
 
@@ -109,11 +98,11 @@ class GrallocTextureCreator
 {
 public:
     static GrallocTexture* createTexture(const QImage& image, ShaderCache& cachedShaders);
+    static int convertFormat(const QImage& image, int& numChannels, ColorShader& conversionShader);
 
 private:
     static uint32_t convertUsage(const QImage& image);
     static uint32_t convertLockUsage(const QImage& image);
-    static int convertFormat(const QImage& image, int& numChannels, ColorShader& conversionShader);
 };
 
 class GrallocTexture : public QSGTexture
@@ -137,6 +126,7 @@ private:
     void initializeEgl(struct graphic_buffer* handle);
 
     void renderShader(QOpenGLFunctions* gl) const;
+    void bindImageOnly(QOpenGLFunctions* gl) const;
 
     PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR;
     PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR;

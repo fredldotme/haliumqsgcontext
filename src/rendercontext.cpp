@@ -29,7 +29,7 @@
 #include <hybris/common/dlfcn.h>
 
 RenderContext::RenderContext(QSGContext* context) : QSGDefaultRenderContext(context),
-    m_logging(false)
+    m_logging(false), m_quirks(RenderContext::NoQuirk), m_libuiFound(false)
 {
 
 }
@@ -67,16 +67,16 @@ bool RenderContext::init() const
         QDBusConnection::disconnectFromBus(connName);
     }
 
-    // Check for worrysome GPU vendor
-    static const std::vector<std::string> gpuBlocklist = {
-        "Imagination Technologies"
+    // Check for worrysome GPU vendors
+    static const std::map<std::string, RenderContext::Quirks> gpuQuirks = {
+        {"Imagination Technologies", RenderContext::DisableConversionShaders}
     };
 
-    const uchar* graphicsVendor = glGetString(GL_VENDOR);
-    if (graphicsVendor && std::find(gpuBlocklist.begin(), gpuBlocklist.end(), std::string(reinterpret_cast<const char*>(graphicsVendor))) != gpuBlocklist.end()) {
+    const char* graphicsVendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
+    if (graphicsVendor && gpuQuirks.find(std::string(graphicsVendor)) != gpuQuirks.end()) {
+        m_quirks = gpuQuirks.find(std::string(graphicsVendor))->second;
         if (m_logging)
-            qWarning() << "Worrysome GPU vendor detected, only offering partial functionality.";
-        return false;
+            qWarning() << "Worrysome GPU vendor detected, quirks:" << m_quirks;
     }
 
     // Check whether the prerequisite library can be dlopened
@@ -89,9 +89,15 @@ bool RenderContext::init() const
         void* handle = hybris_dlopen(ldpath, RTLD_LAZY);
         if (!handle)
             return false;
+        else
+            m_libuiFound = true;
 
         hybris_dlclose(handle);
     }
+
+    // When conversion shaders are disabled the application might still use EGLImage or the default
+    if (m_quirks & RenderContext::DisableConversionShaders)
+        return false;
 
     return compileColorShaders();
 }
@@ -100,18 +106,35 @@ QSGTexture* RenderContext::createTexture(const QImage &image, uint flags) const
 {
     QSGTexture* texture = nullptr;
 
-    static bool colorShadersBuilt = init();
+    static const bool colorShadersBuilt = init();
+    static const bool eglImageOnly = (m_quirks & RenderContext::DisableConversionShaders);
 
-    if (!colorShadersBuilt)
+    if (!m_libuiFound)
         goto default_method;
 
     if (image.width() > m_maxTextureSize || image.height() > m_maxTextureSize)
         goto default_method;
 
+    if (eglImageOnly) {
+        int numChannels = 0;
+        ColorShader conversionShader = ColorShader::ColorShader_Passthrough;
+        GrallocTextureCreator::convertFormat(image, numChannels, conversionShader);
+
+        // It is safe to do allocations using gralloc without use of shaders in this case
+        if (conversionShader == ColorShader::ColorShader_Passthrough)
+            goto gralloc_method;
+        else
+            goto default_method;
+    }
+
+    if (!colorShadersBuilt)
+        goto default_method;
+
+gralloc_method:
     texture = GrallocTextureCreator::createTexture(image, m_cachedShaders);
     if (texture) {
         // Render the color-corrected texture now if this thread has the GL context current,
-        // let QSGTexture::textureId handle it otherwise.
+        // let QSGTexture::bind handle it otherwise.
         if (QOpenGLContext::currentContext() && QOpenGLContext::currentContext()->thread() == this->thread()) {
             GrallocTexture* grallocTexture = static_cast<GrallocTexture*>(texture);
             if (grallocTexture)
@@ -134,6 +157,9 @@ bool RenderContext::compileColorShaders() const
     if (m_logging)
         qDebug() << "Max texture size:" << m_maxTextureSize;
 
+    ShaderBundle emptyBundle{nullptr, nullptr};
+    m_cachedShaders[ColorShader_Passthrough] = emptyBundle;
+
     for (int i = (int)ColorShader::ColorShader_First; i < ColorShader::ColorShader_Count; i++) {
         auto program = std::make_shared<QOpenGLShaderProgram>();
         auto mutex = std::make_shared<QMutex>();
@@ -148,9 +174,6 @@ bool RenderContext::compileColorShaders() const
         }
 
         switch (i) {
-        case ColorShader_Passthrough:
-            success = program->addCacheableShaderFromSourceCode(QOpenGLShader::Fragment, PASSTHROUGH_SHADER);
-            break;
         case ColorShader_FlipColorChannels:
             success = program->addCacheableShaderFromSourceCode(QOpenGLShader::Fragment, FLIP_COLOR_CHANNELS_SHADER);
             break;
