@@ -41,7 +41,7 @@ void RenderContext::messageReceived(const QOpenGLDebugMessage &debugMessage)
 
 bool RenderContext::init() const
 {
-    if (qEnvironmentVariableIsSet("LOMIRI_CONTEXT_OPENGL_LOG")) {
+    if (qEnvironmentVariableIsSet("HALIUMQSG_OPENGL_LOG")) {
         m_logging = true;
         connect(&m_glLogger, &QOpenGLDebugLogger::messageLogged, this, &RenderContext::messageReceived);
 
@@ -109,10 +109,20 @@ QSGTexture* RenderContext::createTexture(const QImage &image, uint flags) const
     static const bool colorShadersBuilt = init();
     static const bool eglImageOnly = (m_quirks & RenderContext::DisableConversionShaders);
 
-    if (!m_libuiFound)
+    // We don't support texture atlases, so defer to Qt's internal implementation
+    if (flags & QSGRenderContext::CreateTexture_Atlas)
         goto default_method;
 
+    // Same for mipmaps, use Qt's implementation
+    if (flags & QSGRenderContext::CreateTexture_Mipmap)
+        goto default_method;
+
+    // We would have to downscale the image before upload, wasting CPU cycles.
+    // In this case the Qt-internal implementation should be sufficient.
     if (image.width() > m_maxTextureSize || image.height() > m_maxTextureSize)
+        goto default_method;
+
+    if (!m_libuiFound)
         goto default_method;
 
     if (eglImageOnly) {
