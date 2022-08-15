@@ -37,6 +37,8 @@ public:
     QSGContext* create(const QString &key) const;
     Flags flags(const QString &) const { return 0; }
 
+    virtual QQuickTextureFactory *createTextureFactoryFromImage(const QImage &image) override;
+
     static Context* instance;
 };
 

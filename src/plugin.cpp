@@ -34,4 +34,11 @@ QSGContext* LomiriContextPlugin::create(const QString&) const
     return instance;
 }
 
+QQuickTextureFactory* LomiriContextPlugin::createTextureFactoryFromImage(const QImage &image)
+{
+    if (!instance)
+        return 0;
+    return instance->createTextureFactory(image);
+}
+
 Context *LomiriContextPlugin::instance = 0;

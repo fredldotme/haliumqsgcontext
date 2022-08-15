@@ -92,19 +92,26 @@ struct ShaderBundle {
 
 typedef std::map<ColorShader, ShaderBundle> ShaderCache;
 
+struct EglImageFunctions {
+    EglImageFunctions();
+    PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR;
+    PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR;
+    PFNGLEGLIMAGETARGETTEXTURE2DOESPROC glEGLImageTargetTexture2DOES;
+};
+
 class GrallocTexture;
 class GrallocTextureCreator
 {
 public:
     static GrallocTexture* createTexture(const QImage& image, ShaderCache& cachedShaders);
     static int convertFormat(const QImage& image, int& numChannels, ColorShader& conversionShader);
+    static uint32_t convertLockUsage(const QImage& image);
 
 private:
     static uint32_t convertUsage(const QImage& image);
-    static uint32_t convertLockUsage(const QImage& image);
 };
 
-class GrallocTexture : public QSGTexture
+class GrallocTexture : public QSGDynamicTexture
 {
     Q_OBJECT
 
@@ -116,21 +123,21 @@ public:
     bool hasAlphaChannel() const override;
     bool hasMipmaps() const override;
     void bind() override;
-    bool updateTexture() const;
+    bool updateTexture() override;
+
+    void* buffer() const;
+    int textureByteCount() const;
 
 private:
-    GrallocTexture(struct graphic_buffer* handle, const QSize& size, const bool& hasAlphaChannel, ShaderBundle conversionShader);
+    GrallocTexture(struct graphic_buffer* handle, const QSize& size, const bool& hasAlphaChannel,
+                   int textureSize, ShaderBundle conversionShader, EglImageFunctions eglImageFunctions);
     ~GrallocTexture();
 
-    void initializeEgl(struct graphic_buffer* handle);
-
+    void createEglImage() const;
     void renderShader(QOpenGLFunctions* gl) const;
     void bindImageOnly(QOpenGLFunctions* gl) const;
 
-    PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR;
-    PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR;
-    PFNGLEGLIMAGETARGETTEXTURE2DOESPROC glEGLImageTargetTexture2DOES;
-
+    mutable struct graphic_buffer* m_buffer;
     EGLImageKHR mutable m_image;
     GLuint mutable m_texture;
     QSize m_size;
@@ -138,6 +145,8 @@ private:
     ShaderBundle m_shaderCode;
     bool mutable m_bound;
     bool mutable m_valid;
+    EglImageFunctions m_eglImageFunctions;
+    int m_textureSize;
 
     friend class GrallocTextureCreator;
 };

@@ -19,6 +19,7 @@ add_library(
     animationdriver.cpp
     rendercontext.cpp
     gralloctexture.cpp
+    texturefactory.cpp
 )
 
 target_link_libraries(

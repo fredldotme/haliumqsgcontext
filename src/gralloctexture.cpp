@@ -32,14 +32,31 @@ extern "C" {
 void hybris_ui_initialize();
 }
 
+static EglImageFunctions eglImageFunctions;
+
+EglImageFunctions::EglImageFunctions()
+{
+    eglCreateImageKHR = (PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress("eglCreateImageKHR");
+    if (!eglCreateImageKHR)
+        throw std::runtime_error("eglCreateImageKHR");
+
+    eglDestroyImageKHR = (PFNEGLDESTROYIMAGEKHRPROC)eglGetProcAddress("eglDestroyImageKHR");
+    if (!eglDestroyImageKHR)
+        throw std::runtime_error("eglDestroyImageKHR");
+
+    glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
+    if (!glEGLImageTargetTexture2DOES)
+        throw std::runtime_error("glEGLImageTargetTexture2DOES");
+}
+
 uint32_t GrallocTextureCreator::convertUsage(const QImage& image)
 {
-    return GRALLOC_USAGE_SW_READ_NEVER | GRALLOC_USAGE_SW_WRITE_NEVER | GRALLOC_USAGE_HW_TEXTURE;
+    return GRALLOC_USAGE_SW_READ_RARELY | GRALLOC_USAGE_SW_WRITE_RARELY | GRALLOC_USAGE_HW_TEXTURE;
 }
 
 uint32_t GrallocTextureCreator::convertLockUsage(const QImage& image)
 {
-    return GRALLOC_USAGE_SW_WRITE_RARELY;
+    return GRALLOC_USAGE_SW_WRITE_RARELY | GRALLOC_USAGE_SW_READ_RARELY;
 }
 
 int GrallocTextureCreator::convertFormat(const QImage& image, int& numChannels, ColorShader& conversionShader)
@@ -158,23 +175,26 @@ GrallocTexture* GrallocTextureCreator::createTexture(const QImage& image, Shader
         const int grallocBytesPerLine = stride * numChannels;
         const int copyBytesPerLine = qMin(bytesPerLine, grallocBytesPerLine);
         const uchar* sourceAddr = image.constBits();
-        char* data = (char*)vmemAddr;
+        int textureSize = 0;
 
         if (bytesPerLine != grallocBytesPerLine) {
             for (int i = 0; i < height; i++) {
                 void* dst = (vmemAddr + (grallocBytesPerLine * i));
                 const void* src = image.constScanLine(i);
                 memcpy(dst, src, copyBytesPerLine);
+                textureSize += copyBytesPerLine;
             }
         } else {
             memcpy(vmemAddr, (const void*)sourceAddr, image.sizeInBytes());
+            textureSize += image.sizeInBytes();
         }
         graphic_buffer_unlock(handle);
 
         const QSize imageSize = image.size();
         const bool hasAlphaChannel = image.hasAlphaChannel();
         try {
-            texture = new GrallocTexture(handle, imageSize, hasAlphaChannel, cachedShaders[conversionShader]);
+            texture = new GrallocTexture(handle, imageSize, hasAlphaChannel, textureSize,
+                                         cachedShaders[conversionShader], eglImageFunctions);
         } catch (const std::exception& ex) {
             texture = nullptr;
         }
@@ -182,41 +202,19 @@ GrallocTexture* GrallocTextureCreator::createTexture(const QImage& image, Shader
         graphic_buffer_unlock(handle);
     }
 
-    graphic_buffer_free(handle);
+    // The graphic_buffer handle will be freed right after turning it into an EGLImage
     vmemAddr = nullptr;
     handle = nullptr;
     return texture;
 }
 
-GrallocTexture::GrallocTexture(struct graphic_buffer* handle, const QSize& size, const bool& hasAlphaChannel, ShaderBundle conversionShader) :
-    QSGTexture(), m_image(EGL_NO_IMAGE_KHR), m_size(size), m_texture(0),
-    m_hasAlphaChannel(hasAlphaChannel), m_shaderCode(conversionShader), m_bound(false), m_valid(true)
+GrallocTexture::GrallocTexture(struct graphic_buffer* handle, const QSize& size,
+                               const bool& hasAlphaChannel, int textureSize,
+                               ShaderBundle conversionShader, EglImageFunctions eglImageFunctions) :
+    QSGDynamicTexture(), m_buffer(handle), m_image(EGL_NO_IMAGE_KHR), m_size(size), m_texture(0),
+    m_hasAlphaChannel(hasAlphaChannel), m_shaderCode(conversionShader), m_bound(false), m_valid(true),
+    m_textureSize(textureSize), m_eglImageFunctions(eglImageFunctions)
 {
-    initializeEgl(handle);
-}
-
-void GrallocTexture::initializeEgl(struct graphic_buffer* handle)
-{
-    eglCreateImageKHR = (PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress("eglCreateImageKHR");
-    if (!eglCreateImageKHR)
-        throw std::runtime_error("eglCreateImageKHR");
-
-    eglDestroyImageKHR = (PFNEGLDESTROYIMAGEKHRPROC)eglGetProcAddress("eglDestroyImageKHR");
-    if (!eglDestroyImageKHR)
-        throw std::runtime_error("eglDestroyImageKHR");
-
-    glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
-    if (!glEGLImageTargetTexture2DOES)
-        throw std::runtime_error("glEGLImageTargetTexture2DOES");
-
-    if (m_image == EGL_NO_IMAGE_KHR) {
-        EGLDisplay dpy = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-        EGLContext context = EGL_NO_CONTEXT;
-        EGLint attrs[] = { EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE };
-
-        void* native_buffer = graphic_buffer_get_native_buffer(handle);
-        m_image = eglCreateImageKHR(dpy, context, EGL_NATIVE_BUFFER_ANDROID, native_buffer, attrs);
-    }
 }
 
 GrallocTexture::GrallocTexture() : m_valid(false)
@@ -230,9 +228,13 @@ GrallocTexture::~GrallocTexture()
         gl->glDeleteTextures(1, &m_texture);
     }
     if (m_image != EGL_NO_IMAGE_KHR) {
-        EGLDisplay dpy = eglGetCurrentDisplay();
-        eglDestroyImageKHR(dpy, m_image);
+        EGLDisplay dpy = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+        m_eglImageFunctions.eglDestroyImageKHR(dpy, m_image);
         m_image = EGL_NO_IMAGE_KHR;
+    }
+    if (m_buffer) {
+        graphic_buffer_free(m_buffer);
+        m_buffer = nullptr;
     }
 }
 
@@ -254,6 +256,33 @@ bool GrallocTexture::hasAlphaChannel() const
 bool GrallocTexture::hasMipmaps() const
 {
     return false;
+}
+
+void* GrallocTexture::buffer() const
+{
+    return m_buffer;
+}
+
+int GrallocTexture::textureByteCount() const
+{
+    return m_textureSize;
+}
+
+void GrallocTexture::createEglImage() const
+{
+    if (m_image == EGL_NO_IMAGE_KHR && m_buffer) {
+        EGLDisplay dpy = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+        EGLContext context = EGL_NO_CONTEXT;
+        EGLint attrs[] = { EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE };
+
+        void* native_buffer = graphic_buffer_get_native_buffer(m_buffer);
+        m_image = m_eglImageFunctions.eglCreateImageKHR(dpy, context, EGL_NATIVE_BUFFER_ANDROID, native_buffer, attrs);
+
+#if 0
+        graphic_buffer_free(m_buffer);
+        m_buffer = nullptr;
+#endif
+    }
 }
 
 void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
@@ -315,7 +344,7 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
     gl->glViewport(0, 0, width, height);
 
     // "Dump" the EGLImage onto the texture
-    glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, m_image);
+    m_eglImageFunctions.glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, m_image);
 
     vao.create();
     vao.bind();
@@ -360,12 +389,14 @@ void GrallocTexture::bindImageOnly(QOpenGLFunctions* gl) const
     gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, m_image);
+    m_eglImageFunctions.glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, m_image);
 }
 
-bool GrallocTexture::updateTexture() const
+bool GrallocTexture::updateTexture()
 {
     QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
+
+    createEglImage();
 
     // Special-case passthrough mode
     if (!m_shaderCode.program.get() && m_texture == 0) {
@@ -382,12 +413,9 @@ void GrallocTexture::bind()
 {
     m_bound = true;
 
-    QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
-
-    // In case the texture was not already created, due to being created in a non-current thread
-    // then catch up and do so now right before the texture is being asked for.
     updateTexture();
 
+    QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
     if (m_shaderCode.program.get()) {
         gl->glBindTexture(GL_TEXTURE_2D, m_texture);
     } else {

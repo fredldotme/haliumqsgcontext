@@ -20,6 +20,8 @@
 #include <private/qsgdefaultcontext_p.h>
 #include <QtCore/QAnimationDriver>
 
+class RenderContext;
+
 class Context : public QSGDefaultContext
 {
     Q_OBJECT
@@ -28,7 +30,11 @@ public:
     explicit Context(QObject *parent = 0);
 
     QAnimationDriver* createAnimationDriver(QObject *parent) override;
-    QSGRenderContext *createRenderContext() override;
+    QSGRenderContext* createRenderContext() override;
+    QQuickTextureFactory* createTextureFactory(const QImage &image);
+
+private:
+    RenderContext* m_factoryRenderContext;
 };
 
 #endif

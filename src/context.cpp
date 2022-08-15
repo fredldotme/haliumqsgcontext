@@ -17,10 +17,12 @@
 #include "context.h"
 #include "animationdriver.h"
 #include "rendercontext.h"
+#include "texturefactory.h"
 
 #include <QQuickWindow>
 
-Context::Context(QObject* parent) : QSGDefaultContext(parent)
+Context::Context(QObject* parent) : QSGDefaultContext(parent),
+    m_factoryRenderContext(new RenderContext(this))
 {
 }
 
@@ -32,4 +34,9 @@ QAnimationDriver* Context::createAnimationDriver(QObject *parent)
 QSGRenderContext* Context::createRenderContext()
 {
     return new RenderContext(this);
+}
+
+QQuickTextureFactory* Context::createTextureFactory(const QImage &image)
+{
+    return new TextureFactory(m_factoryRenderContext, image);
 }
