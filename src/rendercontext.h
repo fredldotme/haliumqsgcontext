@@ -30,6 +30,7 @@ public:
     explicit RenderContext(QSGContext* context);
 
     QSGTexture* createTexture(const QImage &image, uint flags = QSGRenderContext::CreateTexture_Alpha) const override;
+    ShaderCache colorCorrectionShaders();
 
 private:
     enum Quirk {

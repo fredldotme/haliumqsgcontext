@@ -192,9 +192,15 @@ GrallocTexture* GrallocTextureCreator::createTexture(const QImage& image, Shader
 
         const QSize imageSize = image.size();
         const bool hasAlphaChannel = image.hasAlphaChannel();
+
+        ShaderBundle shaderBundle;
+        if (cachedShaders.find(conversionShader) != cachedShaders.end())
+            shaderBundle = cachedShaders[conversionShader];
+
         try {
             texture = new GrallocTexture(handle, imageSize, hasAlphaChannel, textureSize,
-                                         cachedShaders[conversionShader], eglImageFunctions);
+                                         shaderBundle, eglImageFunctions);
+
         } catch (const std::exception& ex) {
             texture = nullptr;
         }
@@ -245,7 +251,9 @@ int GrallocTexture::textureId() const
 
 QSize GrallocTexture::textureSize() const
 {
-    return m_size;
+    const int width = graphic_buffer_get_width(m_buffer);
+    const int height = graphic_buffer_get_height(m_buffer);
+    return QSize(width, height);
 }
 
 bool GrallocTexture::hasAlphaChannel() const
@@ -277,11 +285,6 @@ void GrallocTexture::createEglImage() const
 
         void* native_buffer = graphic_buffer_get_native_buffer(m_buffer);
         m_image = m_eglImageFunctions.eglCreateImageKHR(dpy, context, EGL_NATIVE_BUFFER_ANDROID, native_buffer, attrs);
-
-#if 0
-        graphic_buffer_free(m_buffer);
-        m_buffer = nullptr;
-#endif
     }
 }
 

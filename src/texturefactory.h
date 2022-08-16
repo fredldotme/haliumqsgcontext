@@ -23,7 +23,8 @@ public:
 private:
     RenderContext* m_renderContext;
     QImage m_image;
-    mutable QSGTexture* m_texture;
+    QSize mutable m_size;
+    int mutable m_byteCount;
 };
 
 #endif

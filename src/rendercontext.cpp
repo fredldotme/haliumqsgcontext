@@ -39,6 +39,11 @@ void RenderContext::messageReceived(const QOpenGLDebugMessage &debugMessage)
     qWarning() << "OpenGL log:" << debugMessage.message();
 }
 
+ShaderCache RenderContext::colorCorrectionShaders()
+{
+    return m_cachedShaders;
+}
+
 bool RenderContext::init() const
 {
     if (qEnvironmentVariableIsSet("HALIUMQSG_OPENGL_LOG")) {
@@ -142,9 +147,8 @@ QSGTexture* RenderContext::createTexture(const QImage &image, uint flags) const
 
 gralloc_method:
     texture = GrallocTextureCreator::createTexture(image, m_cachedShaders);
-    if (texture) {
+    if (texture)
         return texture;
-    }
 
 default_method:
     return QSGDefaultRenderContext::createTexture(image, flags);

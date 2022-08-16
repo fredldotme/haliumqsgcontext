@@ -34,11 +34,13 @@ QSGContext* LomiriContextPlugin::create(const QString&) const
     return instance;
 }
 
+#if 0
 QQuickTextureFactory* LomiriContextPlugin::createTextureFactoryFromImage(const QImage &image)
 {
     if (!instance)
         return 0;
     return instance->createTextureFactory(image);
 }
+#endif
 
 Context *LomiriContextPlugin::instance = 0;
