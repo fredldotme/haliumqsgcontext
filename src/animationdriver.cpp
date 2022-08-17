@@ -23,16 +23,19 @@
 AnimationDriver::AnimationDriver(QObject* parent)
     : QAnimationDriver(parent)
 {
-    connect(qGuiApp, &QGuiApplication::screenAdded, this, [=](QScreen*) {
+    connect(qGuiApp, &QGuiApplication::screenAdded, this, [=]() {
         startListening();
     });
-    connect(qGuiApp, &QGuiApplication::screenRemoved, this, [=](QScreen*) {
+    connect(qGuiApp, &QGuiApplication::screenRemoved, this, [=]() {
         startListening();
     });
 }
 
 void AnimationDriver::startListening()
 {
+    if (m_referenceWindow)
+        m_referenceWindow = nullptr;
+
     QWindow* highestRefreshWindow = nullptr;
 
     for (auto const potentialWindow : QGuiApplication::allWindows()) {
@@ -42,11 +45,11 @@ void AnimationDriver::startListening()
         if (!potentialWindow->screen())
             continue;
 
-        if (!highestRefreshWindow && (!m_referenceWindow || !m_referenceWindow->screen())) {
+        if (!highestRefreshWindow) {
             highestRefreshWindow = potentialWindow;
         }
 
-        if (highestRefreshWindow->screen()->refreshRate() < potentialWindow->screen()->refreshRate()) {
+        if (highestRefreshWindow->screen() && highestRefreshWindow->screen()->refreshRate() < potentialWindow->screen()->refreshRate()) {
             highestRefreshWindow = potentialWindow;
         }
     }
@@ -60,11 +63,6 @@ void AnimationDriver::startListening()
         return;
     }
 
-    if (window == m_referenceWindow) {
-        return;
-    }
-
-    disconnect(m_referenceWindow, &QQuickWindow::frameSwapped, this, &AnimationDriver::advance);
     m_referenceWindow = window;
     connect(window, &QQuickWindow::frameSwapped, this, &AnimationDriver::advance, Qt::DirectConnection);
 }
