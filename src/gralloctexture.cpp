@@ -51,12 +51,12 @@ EglImageFunctions::EglImageFunctions()
 
 uint32_t GrallocTextureCreator::convertUsage(const QImage& image)
 {
-    return GRALLOC_USAGE_SW_READ_RARELY | GRALLOC_USAGE_SW_WRITE_RARELY | GRALLOC_USAGE_HW_TEXTURE;
+    return GRALLOC_USAGE_SW_READ_NEVER | GRALLOC_USAGE_SW_WRITE_NEVER | GRALLOC_USAGE_HW_TEXTURE;
 }
 
 uint32_t GrallocTextureCreator::convertLockUsage(const QImage& image)
 {
-    return GRALLOC_USAGE_SW_WRITE_RARELY | GRALLOC_USAGE_SW_READ_RARELY;
+    return GRALLOC_USAGE_SW_WRITE_RARELY | GRALLOC_USAGE_SW_READ_NEVER | GRALLOC_USAGE_HW_TEXTURE;
 }
 
 int GrallocTextureCreator::convertFormat(const QImage& image, int& numChannels, ColorShader& conversionShader)

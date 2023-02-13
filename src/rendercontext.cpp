@@ -114,6 +114,7 @@ QSGTexture* RenderContext::createTexture(const QImage &image, uint flags) const
     static const bool colorShadersBuilt = init();
     static const bool eglImageOnly = (m_quirks & RenderContext::DisableConversionShaders);
 
+#if 0
     // We don't support texture atlases, so defer to Qt's internal implementation
     if (flags & QSGRenderContext::CreateTexture_Atlas)
         goto default_method;
@@ -121,6 +122,7 @@ QSGTexture* RenderContext::createTexture(const QImage &image, uint flags) const
     // Same for mipmaps, use Qt's implementation
     if (flags & QSGRenderContext::CreateTexture_Mipmap)
         goto default_method;
+#endif
 
     // We would have to downscale the image before upload, wasting CPU cycles.
     // In this case the Qt-internal implementation should be sufficient.
@@ -130,19 +132,13 @@ QSGTexture* RenderContext::createTexture(const QImage &image, uint flags) const
     if (!m_libuiFound)
         goto default_method;
 
-    if (eglImageOnly) {
-        int numChannels = 0;
-        ColorShader conversionShader = ColorShader::ColorShader_None;
-        GrallocTextureCreator::convertFormat(image, numChannels, conversionShader);
-
-        // It is safe to do allocations using gralloc without use of shaders in this case
-        if (conversionShader == ColorShader::ColorShader_None)
-            goto gralloc_method;
-        else
-            goto default_method;
-    }
+    if (eglImageOnly)
+        goto default_method;
 
     if (!colorShadersBuilt)
+        goto default_method;
+
+    if (openglContext() && openglContext()->thread() == QThread::currentThread())
         goto default_method;
 
 gralloc_method:

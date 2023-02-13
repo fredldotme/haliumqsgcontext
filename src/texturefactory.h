@@ -19,6 +19,7 @@ public:
     virtual QSGTexture* createTexture(QQuickWindow *window) const override;
     virtual int textureByteCount() const override;
     virtual QSize textureSize() const override;
+    virtual QImage image() const override;
 
 private:
     RenderContext* m_renderContext;
