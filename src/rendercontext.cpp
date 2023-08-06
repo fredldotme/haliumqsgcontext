@@ -141,7 +141,7 @@ QSGTexture* RenderContext::createTexture(const QImage &image, uint flags) const
         goto default_method;
 
 gralloc_method:
-    texture = GrallocTextureCreator::createTexture(image, m_cachedShaders);
+    texture = GrallocTextureCreator::createTexture(image, m_cachedShaders, m_maxTextureSize);
     if (texture)
         return texture;
 
@@ -159,71 +159,112 @@ bool RenderContext::compileColorShaders() const
     if (m_logging)
         qDebug() << "Max texture size:" << m_maxTextureSize;
 
-    ShaderBundle emptyBundle{nullptr, nullptr};
+    ShaderBundle emptyBundle{0, nullptr, 0, 0, 0};
     m_cachedShaders[ColorShader_None] = emptyBundle;
 
     for (int i = (int)ColorShader::ColorShader_First; i < ColorShader::ColorShader_Count; i++) {
-        auto program = std::make_shared<QOpenGLShaderProgram>();
+        auto program = gl->glCreateProgram();
         auto mutex = std::make_shared<QMutex>();
+        GLint compiled = GL_FALSE;
         bool success = false;
 
         if (m_logging)
             qDebug() << "Compiling shader" << i;
 
-        success = program->addCacheableShaderFromSourceCode(QOpenGLShader::Vertex, COLOR_CONVERSION_VERTEX);
-
+        // Compile the vertex shader
+        GLuint vertexShader = gl->glCreateShader(GL_VERTEX_SHADER);
+        gl->glShaderSource(vertexShader, 1, &COLOR_CONVERSION_VERTEX, nullptr);
+        gl->glCompileShader(vertexShader);
+        gl->glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &compiled);
+        success = (compiled == GL_TRUE);
         if (!success) {
-            qWarning() << "Failed to compile vertex shader hence using defaults. Reason:";
-            qWarning() << program->log();
+            qWarning() << "Failed to compile vertex shader hence using defaults.";
+            GLsizei log_length = 0;
+            GLchar message[1024];
+            gl->glGetShaderInfoLog(vertexShader, 1024, &log_length, message);
+            qWarning() << QString::fromLocal8Bit(message, log_length);
             return false;
         }
+        gl->glAttachShader(program, vertexShader);
+
+        static const auto compileFragmentShader = [](QOpenGLFunctions* gl, GLuint program, const GLchar* source) {
+            GLint compiled = GL_FALSE;
+            GLuint fragmentShader = gl->glCreateShader(GL_FRAGMENT_SHADER);
+
+            gl->glShaderSource(fragmentShader, 1, &source, nullptr);
+            gl->glCompileShader(fragmentShader);
+            gl->glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &compiled);
+
+            if (compiled != GL_TRUE) {
+                GLsizei log_length = 0;
+                GLchar message[1024];
+                gl->glGetShaderInfoLog(fragmentShader, 1024, &log_length, message);
+                qWarning() << QString::fromLocal8Bit(message, log_length);
+            } else {
+                gl->glAttachShader(program, fragmentShader);
+            }
+
+            return (compiled == GL_TRUE);
+        };
 
         switch (i) {
         case ColorShader_Passthrough:
-            success = program->addCacheableShaderFromSourceCode(QOpenGLShader::Fragment, PASSTHROUGH_SHADER);
+        {
+            success = compileFragmentShader(gl, program, PASSTHROUGH_SHADER);
             break;
+        }
         case ColorShader_FlipColorChannels:
-            success = program->addCacheableShaderFromSourceCode(QOpenGLShader::Fragment, FLIP_COLOR_CHANNELS_SHADER);
+        {
+            success = compileFragmentShader(gl, program, FLIP_COLOR_CHANNELS_SHADER);
             break;
+        }
         case ColorShader_FlipColorChannelsWithAlpha:
-            success = program->addCacheableShaderFromSourceCode(QOpenGLShader::Fragment, FLIP_COLOR_CHANNELS_WITH_ALPHA_SHADER);
+        {
+            success = compileFragmentShader(gl, program, FLIP_COLOR_CHANNELS_WITH_ALPHA_SHADER);
             break;
+        }
         case ColorShader_RGB32ToRGBX8888:
-            success = program->addCacheableShaderFromSourceCode(QOpenGLShader::Fragment, RGB32_TO_RGBA8888_SHADER);
+        {
+            success = compileFragmentShader(gl, program, RGB32_TO_RGBA8888_SHADER);
             break;
+        }
         case ColorShader_RedAndBlueSwap:
-            success = program->addCacheableShaderFromSourceCode(QOpenGLShader::Fragment, RED_AND_BLUE_SWAP_SHADER);
+        {
+            success = compileFragmentShader(gl, program, RED_AND_BLUE_SWAP_SHADER);
             break;
+        }
         default:
             qWarning() << "No color shader type" << i;
             break;
         }
 
         if (!success) {
-            qWarning() << "Failed to compile fragment shader" << i << "hence using defaults. Reason:";
-            qWarning() << program->log();
+            qWarning() << "Failed to compile fragment shader" << i << "hence using defaults.";
             return false;
         }
 
-        success = program->link();
+        gl->glBindAttribLocation(program, 0, "vertexCoord");                                                 
+        gl->glBindAttribLocation(program, 1, "textureCoord");                                                 
+
+        gl->glLinkProgram(program);
+        gl->glGetProgramiv(program, GL_LINK_STATUS, &compiled);
+        success = (compiled == GL_TRUE);
         if (!success) {
-            qWarning() << "Failed to link shader" << i << "hence using defaults. Reason:";
-            qWarning() << program->log();
+            qWarning() << "Failed to link shader" << i << "hence using defaults.";
             return false;
         }
 
         ShaderBundle bundle{
             program,
             mutex,
-            program->attributeLocation("vertexCoord"),
-            program->attributeLocation("textureCoord"),
-            program->uniformLocation("tex")
+            0,
+            1,
+            gl->glGetUniformLocation(program, "textureSampler")
         };
         m_cachedShaders[(ColorShader)i] = bundle;
 
         if (m_logging) {
-            qDebug() << "Shader" << i << "compiled:" << program->programId() << bundle.vertexCoord << bundle.textureCoord << bundle.texture;
-            qDebug() << "Shader log:" << program->log();
+            qDebug() << "Shader" << i << "compiled:" << program << bundle.vertexCoord << bundle.textureCoord << bundle.texture;
         }
     }
 

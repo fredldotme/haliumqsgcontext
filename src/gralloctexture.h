@@ -20,7 +20,7 @@
 #include <QObject>
 #include <QImage>
 #include <QSize>
-#include <QSGTexture>
+#include <QSGDynamicTexture>
 #include <QDebug>
 #include <QMutex>
 #include <QMatrix4x4>
@@ -69,17 +69,13 @@ static const GLchar* COLOR_CONVERSION_VERTEX = {
 
 static const GLchar* PASSTHROUGH_SHADER = {
     "#version 100\n"
-    "#extension GL_OES_EGL_image_external : require\n"  
+    "#extension GL_OES_EGL_image_external : require\n"
     "precision mediump float;\n"
-    "uniform samplerExternalOES tex;\n"
+    "uniform samplerExternalOES textureSampler;\n"
     "varying highp vec2 uv;\n"
     "\n"
     "void main() {\n"
-    "    float r = texture2D(tex, uv).r;\n"
-    "    float g = texture2D(tex, uv).g;\n"
-    "    float b = texture2D(tex, uv).b;\n"
-    "    float a = texture2D(tex, uv).a;\n"
-    "    gl_FragColor = vec4(r, g, b, a);\n"
+    "    gl_FragColor = vec4(texture2D(textureSampler, uv).rgba);\n"
     "}\n"
 };
 
@@ -87,15 +83,11 @@ static const GLchar* FLIP_COLOR_CHANNELS_SHADER = {
     "#version 100\n"
     "#extension GL_OES_EGL_image_external : require\n"
     "precision mediump float;\n"
-    "uniform samplerExternalOES tex;\n"
+    "uniform samplerExternalOES textureSampler;\n"
     "varying highp vec2 uv;\n"
     "\n"
     "void main() {\n"
-    "    float r = texture2D(tex, uv).r;\n"
-    "    float g = texture2D(tex, uv).g;\n"
-    "    float b = texture2D(tex, uv).b;\n"
-    "    float a = texture2D(tex, uv).a;\n"
-    "    gl_FragColor = vec4(b, g, r, 1.0);\n"
+    "    gl_FragColor = vec4(texture2D(textureSampler, uv).bgr, 1.0);\n"
     "}\n"
 };
 
@@ -103,15 +95,11 @@ static const GLchar* FLIP_COLOR_CHANNELS_WITH_ALPHA_SHADER = {
     "#version 100\n"
     "#extension GL_OES_EGL_image_external : require\n"
     "precision mediump float;\n"
-    "uniform samplerExternalOES tex;\n"
+    "uniform samplerExternalOES textureSampler;\n"
     "varying highp vec2 uv;\n"
     "\n"
     "void main() {\n"
-    "    float r = texture2D(tex, uv).r;\n"
-    "    float g = texture2D(tex, uv).g;\n"
-    "    float b = texture2D(tex, uv).b;\n"
-    "    float a = texture2D(tex, uv).a;\n"
-    "    gl_FragColor = vec4(b, g, r, a);\n"
+    "    gl_FragColor = texture2D(textureSampler, uv).bgra;\n"
     "}\n"
 };
 
@@ -119,15 +107,11 @@ static const GLchar* RGB32_TO_RGBA8888_SHADER = {
     "#version 100\n"
     "#extension GL_OES_EGL_image_external : require\n"
     "precision mediump float;\n"
-    "uniform samplerExternalOES tex;\n"   
+    "uniform samplerExternalOES textureSampler;\n"   
     "varying highp vec2 uv;\n"
     "\n"
     "void main() {\n"
-    "    float r = texture2D(tex, uv).r;\n"
-    "    float g = texture2D(tex, uv).g;\n"
-    "    float b = texture2D(tex, uv).b;\n"
-    "    float a = texture2D(tex, uv).a;\n"
-    "    gl_FragColor = vec4(r, g, b, a);\n"
+    "    gl_FragColor = texture2D(textureSampler, uv).rgba;\n"
     "}\n"
 };
 
@@ -135,20 +119,16 @@ static const GLchar* RED_AND_BLUE_SWAP_SHADER = {
     "#version 100\n"
     "#extension GL_OES_EGL_image_external : require\n"
     "precision mediump float;\n"
-    "uniform samplerExternalOES tex;\n"
+    "uniform samplerExternalOES textureSampler;\n"
     "varying highp vec2 uv;\n"
     "\n"
     "void main() {\n"
-    "    float r = texture2D(tex, uv).r;\n"
-    "    float g = texture2D(tex, uv).g;\n"
-    "    float b = texture2D(tex, uv).b;\n"
-    "    float a = texture2D(tex, uv).a;\n" 
-    "    gl_FragColor = vec4(b, g, r, a);\n"
+    "    gl_FragColor = texture2D(textureSampler, uv).bgra;\n"
     "}\n"
 };
 
 struct ShaderBundle {
-    std::shared_ptr<QOpenGLShaderProgram> program;
+    GLuint program;
     std::shared_ptr<QMutex> mutex;
     int vertexCoord = -1;
     int textureCoord = -1;
@@ -168,7 +148,7 @@ class GrallocTexture;
 class GrallocTextureCreator
 {
 public:
-    static GrallocTexture* createTexture(const QImage& image, ShaderCache& cachedShaders);
+    static GrallocTexture* createTexture(const QImage& image, ShaderCache& cachedShaders, const int& maxTextureSize);
     static int convertFormat(const QImage& image, int& numChannels, ColorShader& conversionShader);
     static uint32_t convertLockUsage(const QImage& image);
 
@@ -176,7 +156,7 @@ private:
     static uint32_t convertUsage(const QImage& image);
 };
 
-class GrallocTexture : public QSGTexture
+class GrallocTexture : public QSGDynamicTexture
 {
     Q_OBJECT
 
@@ -188,34 +168,42 @@ public:
     virtual bool hasAlphaChannel() const override;
     virtual bool hasMipmaps() const override;
     virtual void bind() override;
+    virtual bool updateTexture() override;
 
     void* buffer() const;
     int textureByteCount() const;
 
-    void createEglImage() const;
+    void provideSizeInfo(const QSize& size);
+    void createEglImage(struct graphic_buffer* handle, const int textureSize) const;
 
 private:
-    GrallocTexture(struct graphic_buffer* handle, const QSize& size, const bool& hasAlphaChannel,
-                   int textureSize, ShaderBundle conversionShader, EglImageFunctions eglImageFunctions);
+    GrallocTexture(const bool& hasAlphaChannel, ShaderBundle conversionShader, EglImageFunctions eglImageFunctions);
     ~GrallocTexture();
 
+    void ensureEmptyTexture(QOpenGLFunctions* gl) const;
     void renderShader(QOpenGLFunctions* gl) const;
     void bindImageOnly(QOpenGLFunctions* gl) const;
     bool renderTexture() const;
+    void awaitInfo() const;
     void awaitUpload() const;
 
-    mutable struct graphic_buffer* m_buffer;
-    EGLImageKHR mutable m_image;
-    GLuint mutable m_texture;
-    QSize m_size;
     bool m_hasAlphaChannel;
     ShaderBundle m_shaderCode;
-    bool mutable m_bound;
-    bool mutable m_valid;
-    EglImageFunctions m_eglImageFunctions;
-    int m_textureSize;
 
+    mutable struct graphic_buffer* m_buffer;
+    mutable EGLImageKHR m_image;
+    mutable int m_textureSize;
+    mutable QSize m_size;
+    mutable GLuint m_texture;
+    mutable bool m_bound;
+    mutable bool m_valid;
+    mutable bool m_rendered;
+
+    EglImageFunctions m_eglImageFunctions;
+
+    mutable std::condition_variable m_infoCondition;
     mutable std::condition_variable m_uploadCondition;
+    mutable std::mutex m_infoMutex;
     mutable std::mutex m_uploadMutex;
 
     friend class GrallocTextureCreator;
