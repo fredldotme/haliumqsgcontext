@@ -20,7 +20,7 @@
 #include <QObject>
 #include <QImage>
 #include <QSize>
-#include <QSGDynamicTexture>
+#include <QSGTexture>
 #include <QDebug>
 #include <QMutex>
 #include <QMatrix4x4>
@@ -69,9 +69,8 @@ static const GLchar* COLOR_CONVERSION_VERTEX = {
 
 static const GLchar* PASSTHROUGH_SHADER = {
     "#version 100\n"
-    "#extension GL_OES_EGL_image_external : require\n"
     "precision mediump float;\n"
-    "uniform samplerExternalOES textureSampler;\n"
+    "uniform sampler2D textureSampler;\n"
     "varying highp vec2 uv;\n"
     "\n"
     "void main() {\n"
@@ -156,7 +155,7 @@ private:
     static uint32_t convertUsage(const QImage& image);
 };
 
-class GrallocTexture : public QSGDynamicTexture
+class GrallocTexture : public QSGTexture
 {
     Q_OBJECT
 
@@ -168,7 +167,6 @@ public:
     virtual bool hasAlphaChannel() const override;
     virtual bool hasMipmaps() const override;
     virtual void bind() override;
-    virtual bool updateTexture() override;
 
     void* buffer() const;
     int textureByteCount() const;
@@ -184,7 +182,6 @@ private:
     void renderShader(QOpenGLFunctions* gl) const;
     void bindImageOnly(QOpenGLFunctions* gl) const;
     bool renderTexture() const;
-    void awaitInfo() const;
     void awaitUpload() const;
 
     bool m_hasAlphaChannel;
@@ -198,6 +195,7 @@ private:
     mutable bool m_bound;
     mutable bool m_valid;
     mutable bool m_rendered;
+    mutable bool m_uploadInProgress;
 
     EglImageFunctions m_eglImageFunctions;
 

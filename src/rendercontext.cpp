@@ -116,7 +116,9 @@ QSGTexture* RenderContext::createTexture(const QImage &image, uint flags) const
     QSGTexture* texture = nullptr;
 
     static const bool colorShadersBuilt = init();
-    static const bool eglImageOnly = (m_quirks & RenderContext::DisableConversionShaders);
+
+    if (!colorShadersBuilt)
+        goto default_method;
 
     // We don't support texture atlases, so defer to Qt's internal implementation
     if (flags & QSGRenderContext::CreateTexture_Atlas)
@@ -124,20 +126,6 @@ QSGTexture* RenderContext::createTexture(const QImage &image, uint flags) const
 
     // Same for mipmaps, use Qt's implementation
     if (flags & QSGRenderContext::CreateTexture_Mipmap)
-        goto default_method;
-
-    // We would have to downscale the image before upload, wasting CPU cycles.
-    // In this case the Qt-internal implementation should be sufficient.
-    if (image.width() > m_maxTextureSize || image.height() > m_maxTextureSize)
-        goto default_method;
-
-    if (!m_libuiFound)
-        goto default_method;
-
-    if (eglImageOnly)
-        goto default_method;
-
-    if (!colorShadersBuilt)
         goto default_method;
 
 gralloc_method:
