@@ -52,7 +52,7 @@ enum ColorShader {
 
     ColorShader_First = ColorShader_Passthrough,
     ColorShader_Last = ColorShader_RedAndBlueSwap,
-    ColorShader_Count =  + ColorShader_Last + 1
+    ColorShader_Count = ColorShader_Last + 1
 };
 
 static const GLchar* COLOR_CONVERSION_VERTEX = {
@@ -80,9 +80,8 @@ static const GLchar* PASSTHROUGH_SHADER = {
 
 static const GLchar* FLIP_COLOR_CHANNELS_SHADER = {
     "#version 100\n"
-    "#extension GL_OES_EGL_image_external : require\n"
     "precision mediump float;\n"
-    "uniform samplerExternalOES textureSampler;\n"
+    "uniform sampler2D textureSampler;\n"
     "varying highp vec2 uv;\n"
     "\n"
     "void main() {\n"
@@ -92,9 +91,8 @@ static const GLchar* FLIP_COLOR_CHANNELS_SHADER = {
 
 static const GLchar* FLIP_COLOR_CHANNELS_WITH_ALPHA_SHADER = {
     "#version 100\n"
-    "#extension GL_OES_EGL_image_external : require\n"
     "precision mediump float;\n"
-    "uniform samplerExternalOES textureSampler;\n"
+    "uniform sampler2D textureSampler;\n"
     "varying highp vec2 uv;\n"
     "\n"
     "void main() {\n"
@@ -104,9 +102,8 @@ static const GLchar* FLIP_COLOR_CHANNELS_WITH_ALPHA_SHADER = {
 
 static const GLchar* RGB32_TO_RGBA8888_SHADER = {
     "#version 100\n"
-    "#extension GL_OES_EGL_image_external : require\n"
     "precision mediump float;\n"
-    "uniform samplerExternalOES textureSampler;\n"   
+    "uniform sampler2D textureSampler;\n"   
     "varying highp vec2 uv;\n"
     "\n"
     "void main() {\n"
@@ -116,9 +113,8 @@ static const GLchar* RGB32_TO_RGBA8888_SHADER = {
 
 static const GLchar* RED_AND_BLUE_SWAP_SHADER = {
     "#version 100\n"
-    "#extension GL_OES_EGL_image_external : require\n"
     "precision mediump float;\n"
-    "uniform samplerExternalOES textureSampler;\n"
+    "uniform sampler2D textureSampler;\n"
     "varying highp vec2 uv;\n"
     "\n"
     "void main() {\n"
