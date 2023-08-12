@@ -22,6 +22,9 @@
 
 #include <QOpenGLDebugLogger>
 
+#undef None
+#include <deviceinfo/deviceinfo.h>
+
 #include "gralloctexture.h"
 
 class RenderContext : public QSGDefaultRenderContext
@@ -50,6 +53,7 @@ private:
     GLint mutable m_maxTextureSize;
     bool mutable m_libuiFound;
     RenderContext::Quirks mutable m_quirks;
+    DeviceInfo m_deviceInfo;
 };
 
 #endif

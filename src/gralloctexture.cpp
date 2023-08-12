@@ -169,9 +169,13 @@ GrallocTexture* GrallocTextureCreator::createTexture(const QImage& image, Shader
     GrallocTexture* texture = nullptr;
 
     {
-        ShaderBundle shaderBundle;
+        std::shared_ptr<ShaderBundle> shaderBundle {nullptr};
         if (cachedShaders.find(conversionShader) != cachedShaders.end())
             shaderBundle = cachedShaders[conversionShader];
+
+        // Fall back to Qt-based uploading of textures in case no shaders are available
+        if (conversionShader != ColorShader_None && !shaderBundle)
+            return nullptr;
 
         try {
             texture = new GrallocTexture(image.hasAlphaChannel(), shaderBundle, eglImageFunctions);
@@ -235,8 +239,7 @@ GrallocTexture* GrallocTextureCreator::createTexture(const QImage& image, Shader
     return texture;
 }
 
-GrallocTexture::GrallocTexture(const bool& hasAlphaChannel,
-                               ShaderBundle conversionShader, EglImageFunctions eglImageFunctions) :
+GrallocTexture::GrallocTexture(const bool& hasAlphaChannel, std::shared_ptr<ShaderBundle> conversionShader, EglImageFunctions eglImageFunctions) :
     QSGTexture(), m_buffer(nullptr), m_image(EGL_NO_IMAGE_KHR), m_texture(0), m_textureSize(0),
     m_hasAlphaChannel(hasAlphaChannel), m_shaderCode(conversionShader), m_bound(false), m_valid(true),
     m_rendered(false), m_uploadInProgress(true), m_eglImageFunctions(eglImageFunctions)
@@ -270,6 +273,8 @@ int GrallocTexture::textureId() const
 {
     QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
     ensureEmptyTexture(gl);
+    renderTexture();
+
     return m_texture;
 }
 
@@ -332,16 +337,21 @@ void GrallocTexture::createEglImage(struct graphic_buffer* handle, const int tex
 void GrallocTexture::ensureEmptyTexture(QOpenGLFunctions* gl) const
 {
     if (m_texture == 0) {
+        GLint prevTexture;
+        gl->glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTexture);
         gl->glGenTextures(1, &m_texture);
-        if (m_shaderCode.program != 0) {
-            gl->glBindTexture(GL_TEXTURE_2D, m_texture);
-            gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-            gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-            gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        gl->glBindTexture(GL_TEXTURE_2D, m_texture);
+        gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        // At least prepare the texture format for the fbo color attachment.
+        if (m_shaderCode && m_shaderCode->program != 0) {
             gl->glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, m_size.width(), m_size.height(), 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-            gl->glBindTexture(GL_TEXTURE_2D, 0);
         }
+
+        gl->glBindTexture(GL_TEXTURE_2D, prevTexture);
     }
 }
 
@@ -351,11 +361,13 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
     const auto width = size.width();
     const auto height = size.height();
     const int textureUnit = 1;
+
     GLint prevProgram = 0;
     GLint prevFbo = 0;
     GLint prevTexture = 0;
     GLint prevActiveTexture = 0;
     GLint prevArrayBuf = 0;
+    GLint prevElementArrayBuf = 0;
     GLint viewport[4];
     GLuint tmpTexture = 0;
 
@@ -382,7 +394,11 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
     gl->glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActiveTexture);
     gl->glGetIntegerv(GL_CURRENT_PROGRAM, &prevProgram);
     gl->glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prevArrayBuf);
+    gl->glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &prevElementArrayBuf);
     gl->glGetIntegerv(GL_VIEWPORT, viewport);
+
+    qDebug() << "prevFbo:" << prevFbo << "prevTexture:" << prevTexture << "prevActiveTexture:" << prevActiveTexture
+	         << "prevProgram:" << prevProgram << "prevArrayBuf:" << prevArrayBuf << "prevElementArrayBuf:" << prevElementArrayBuf;
 
     gl->glBindTexture(GL_TEXTURE_2D, m_texture);
 
@@ -391,10 +407,9 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
     gl->glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     gl->glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_texture, 0);
 
-    if (m_hasAlphaChannel) {
-        gl->glClearColor(0.0, 0.0, 0.0, 0.0);
-        gl->glClear(GL_COLOR_BUFFER_BIT);
-    }
+    gl->glLinkProgram(m_shaderCode->program);
+    gl->glUseProgram(m_shaderCode->program);
+    qDebug() << "Using shader:" << m_shaderCode->program << gl->glGetError();
 
     QOpenGLVertexArrayObject vao;
     QOpenGLBuffer vertexBuffer;
@@ -405,26 +420,23 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
             
     vertexBuffer.create();
     vertexBuffer.bind();
+    vertexBuffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
     vertexBuffer.allocate(vertex_buffer_data, sizeof(vertex_buffer_data));
-    gl->glEnableVertexAttribArray(m_shaderCode.vertexCoord);
-    gl->glVertexAttribPointer(m_shaderCode.vertexCoord, 3, GL_FLOAT, GL_TRUE, 0, 0);
+    gl->glVertexAttribPointer(m_shaderCode->vertexCoord, 3, GL_FLOAT, GL_TRUE, 0, 0);
+    gl->glEnableVertexAttribArray(m_shaderCode->vertexCoord);
     vertexBuffer.release();
-        
+
     textureBuffer.create();
     textureBuffer.bind();
+    textureBuffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
     textureBuffer.allocate(texture_buffer_data, sizeof(texture_buffer_data));
-    gl->glEnableVertexAttribArray(m_shaderCode.textureCoord);
-    gl->glVertexAttribPointer(m_shaderCode.textureCoord, 2, GL_FLOAT, GL_TRUE, 0, 0);
+    gl->glVertexAttribPointer(m_shaderCode->textureCoord, 2, GL_FLOAT, GL_TRUE, 0, 0);
+    gl->glEnableVertexAttribArray(m_shaderCode->textureCoord);
     textureBuffer.release();
-
-    QMutexLocker lock(m_shaderCode.mutex.get());
-    gl->glLinkProgram(m_shaderCode.program);
-    gl->glUseProgram(m_shaderCode.program);
-    qDebug() << "Using shader:" << m_shaderCode.program << gl->glGetError();
 
     const auto newUnit = (prevActiveTexture - GL_TEXTURE0) + textureUnit;
     qDebug() << "newUnit:" << newUnit;
-    gl->glUniform1i(m_shaderCode.texture, newUnit);
+    gl->glUniform1i(m_shaderCode->texture, newUnit);
 
     // "Dump" the EGLImage onto the temporary texture and draw it through the shader
     gl->glGenTextures(1, &tmpTexture);
@@ -439,8 +451,12 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
     gl->glDrawArrays(GL_TRIANGLES, 0, 6);
     gl->glBindTexture(GL_TEXTURE_2D, 0);
 
-    gl->glDisableVertexAttribArray(m_shaderCode.textureCoord);
-    gl->glDisableVertexAttribArray(m_shaderCode.vertexCoord);
+    gl->glDisableVertexAttribArray(m_shaderCode->textureCoord);
+    gl->glDisableVertexAttribArray(m_shaderCode->vertexCoord);
+
+    vao.destroy();
+    textureBuffer.destroy();
+    vertexBuffer.destroy();
 
     gl->glUseProgram(prevProgram);
     gl->glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
@@ -448,54 +464,37 @@ void GrallocTexture::renderShader(QOpenGLFunctions* gl) const
     gl->glActiveTexture(prevActiveTexture);
     gl->glBindTexture(GL_TEXTURE_2D, prevTexture);
     gl->glBindBuffer(GL_ARRAY_BUFFER, prevArrayBuf);
+    gl->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, prevElementArrayBuf);
     gl->glDeleteTextures(1, &tmpTexture);
     gl->glDeleteFramebuffers(1, &fbo);
-}
-
-void GrallocTexture::bindImageOnly(QOpenGLFunctions* gl) const
-{
-    gl->glBindTexture(GL_TEXTURE_2D, m_texture);
-    gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    m_eglImageFunctions.glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, m_image);
 }
 
 bool GrallocTexture::renderTexture() const
 {
     QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
 
+    if (!m_shaderCode || m_shaderCode->program == 0)
+        return false;
+
     if (m_rendered)
         return false;
 
     awaitUpload();
-
-    // Special-case passthrough mode
-    if (m_shaderCode.program == 0) {
-        bindImageOnly(gl);
-        m_rendered = true;
-        return true;
-    } else if (m_shaderCode.program != 0) {
-        renderShader(gl);
-        m_rendered = true;
-        return true;
-    }
-    return false;
+    renderShader(gl);
+    m_rendered = true;
+    return true;
 }
 
 void GrallocTexture::bind()
 {
     QOpenGLFunctions* gl = QOpenGLContext::currentContext()->functions();
 
-    ensureEmptyTexture(gl);
+    // Trigger the EGLimage binding by calling textureId()
+    gl->glBindTexture(GL_TEXTURE_2D, textureId());
 
-    if (m_shaderCode.program != 0) {
-        renderTexture();
-        gl->glBindTexture(GL_TEXTURE_2D, m_texture);
-    } else {
+    if (!m_shaderCode || m_shaderCode->program == 0) {
         awaitUpload();
-        bindImageOnly(gl);
+        m_eglImageFunctions.glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, m_image);
     }
 }
 

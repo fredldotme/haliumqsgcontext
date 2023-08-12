@@ -6,6 +6,7 @@ include_directories(
     ${EGL_INCLUDE_DIRS}
     ${GLES_INCLUDE_DIRS}
     ${ANDROID_INCLUDE_DIRS}
+    ${DEVICEINFO_INCLUDE_DIRS}
     ${Qt5Gui_PRIVATE_INCLUDE_DIRS}
     ${Qt5Quick_PRIVATE_INCLUDE_DIRS}
 )
@@ -29,7 +30,7 @@ target_link_libraries(
     ${EGL_LIBS}
     ${GLES_LDFLAGS}
     ${GLES_LIBS}
-
+    -ldeviceinfo
     -lui
     Qt5::Core
     Qt5::DBus

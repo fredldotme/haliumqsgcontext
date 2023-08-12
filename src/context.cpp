@@ -21,13 +21,20 @@
 
 #include <QQuickWindow>
 
+#undef None
+#include <deviceinfo.h>
+
 Context::Context(QObject* parent) : QSGDefaultContext(parent),
     m_factoryRenderContext(new RenderContext(this))
 {
+    DeviceInfo deviceInfo(DeviceInfo::None);
+    m_useHaliumQsgAnimationDriver = (deviceInfo.get("HaliumQsgAnimationDriver", "true") == "true");
 }
 
 QAnimationDriver* Context::createAnimationDriver(QObject *parent)
 {
+    if (!m_useHaliumQsgAnimationDriver)
+        return QSGDefaultContext::createAnimationDriver(parent);
     return new AnimationDriver(parent);
 }
 

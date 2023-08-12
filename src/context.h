@@ -35,6 +35,7 @@ public:
 
 private:
     RenderContext* m_factoryRenderContext;
+    bool m_useHaliumQsgAnimationDriver;
 };
 
 #endif

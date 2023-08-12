@@ -28,10 +28,16 @@
 #include <dlfcn.h>
 #include <hybris/common/dlfcn.h>
 
-RenderContext::RenderContext(QSGContext* context) : QSGDefaultRenderContext(context),
-    m_logging(false), m_quirks(RenderContext::NoQuirk), m_libuiFound(false)
-{
+// Clashes with deviceinfo
+#undef None
 
+RenderContext::RenderContext(QSGContext* context) : QSGDefaultRenderContext(context),
+    m_logging(false), m_quirks(RenderContext::NoQuirk), m_libuiFound(false), m_deviceInfo(DeviceInfo::None)
+{
+    // Don't enable use of color correction shaders if not explicitly specified
+    if (m_deviceInfo.get("HaliumQsgUseShaders", "false") == "false") {
+        m_quirks |= RenderContext::DisableConversionShaders;
+    }
 }
 
 void RenderContext::messageReceived(const QOpenGLDebugMessage &debugMessage)
@@ -74,20 +80,6 @@ bool RenderContext::init() const
     }
 #endif
 
-    // Check for worrysome GPU vendors
-    if (!qEnvironmentVariableIsSet("HALIUMQSG_NO_QUIRKS")) {
-        static const std::map<std::string, RenderContext::Quirks> gpuQuirks = {
-            {"Imagination Technologies", RenderContext::DisableConversionShaders}
-        };
-
-        const char* graphicsVendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
-        if (graphicsVendor && gpuQuirks.find(std::string(graphicsVendor)) != gpuQuirks.end()) {
-            m_quirks = gpuQuirks.find(std::string(graphicsVendor))->second;
-            if (m_logging)
-                qWarning() << "Worrysome GPU vendor detected, quirks:" << m_quirks;
-        }
-    }
-
     // Check whether the prerequisite library can be dlopened
     {
 #ifdef __LP64__
@@ -103,10 +95,6 @@ bool RenderContext::init() const
 
         hybris_dlclose(handle);
     }
-
-    // When conversion shaders are disabled the application might still use EGLImage or the default
-    if (m_quirks & RenderContext::DisableConversionShaders)
-        return false;
 
     return compileColorShaders();
 }
@@ -128,12 +116,13 @@ QSGTexture* RenderContext::createTexture(const QImage &image, uint flags) const
     if (flags & QSGRenderContext::CreateTexture_Mipmap)
         goto default_method;
 
-gralloc_method:
     texture = GrallocTextureCreator::createTexture(image, m_cachedShaders, m_maxTextureSize);
     if (texture)
         return texture;
 
 default_method:
+    if (m_logging)
+        qDebug() << "Falling back to Qt for texture uploads";
     return QSGDefaultRenderContext::createTexture(image, flags);
 }
 
@@ -147,12 +136,14 @@ bool RenderContext::compileColorShaders() const
     if (m_logging)
         qDebug() << "Max texture size:" << m_maxTextureSize;
 
-    ShaderBundle emptyBundle{0, nullptr, 0, 0, 0};
-    m_cachedShaders[ColorShader_None] = emptyBundle;
+    m_cachedShaders[ColorShader_None] = std::make_shared<ShaderBundle>(0, 0, 0, 0);
+
+    // When conversion shaders are disabled the application might still use EGLImage or the default
+    if (m_quirks & RenderContext::DisableConversionShaders)
+        return true;
 
     for (int i = (int)ColorShader::ColorShader_First; i < ColorShader::ColorShader_Count; i++) {
         auto program = gl->glCreateProgram();
-        auto mutex = std::make_shared<QMutex>();
         GLint compiled = GL_FALSE;
         bool success = false;
 
@@ -242,17 +233,16 @@ bool RenderContext::compileColorShaders() const
             return false;
         }
 
-        ShaderBundle bundle{
+        auto bundle = std::make_shared<ShaderBundle>(
             program,
-            mutex,
             0,
             1,
             gl->glGetUniformLocation(program, "textureSampler")
-        };
+        );
         m_cachedShaders[(ColorShader)i] = bundle;
 
         if (m_logging) {
-            qDebug() << "Shader" << i << "compiled:" << program << bundle.vertexCoord << bundle.textureCoord << bundle.texture;
+            qDebug() << "Shader" << i << "compiled:" << program << bundle->vertexCoord << bundle->textureCoord << bundle->texture;
         }
     }
 

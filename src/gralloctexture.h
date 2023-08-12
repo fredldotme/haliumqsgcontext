@@ -123,14 +123,15 @@ static const GLchar* RED_AND_BLUE_SWAP_SHADER = {
 };
 
 struct ShaderBundle {
-    GLuint program;
-    std::shared_ptr<QMutex> mutex;
-    int vertexCoord = -1;
-    int textureCoord = -1;
-    int texture = -1;
+    ShaderBundle(GLuint program, int vertexCoord, int textureCoord, int textureSampler) :
+        program(program), vertexCoord(vertexCoord), textureCoord(textureCoord), texture(textureSampler) {}
+    const GLuint program;
+    const int vertexCoord = -1;
+    const int textureCoord = -1;
+    const int texture = -1;
 };
 
-typedef std::map<ColorShader, ShaderBundle> ShaderCache;
+typedef std::map<ColorShader, std::shared_ptr<ShaderBundle>> ShaderCache;
 
 struct EglImageFunctions {
     EglImageFunctions();
@@ -171,7 +172,7 @@ public:
     void createEglImage(struct graphic_buffer* handle, const int textureSize) const;
 
 private:
-    GrallocTexture(const bool& hasAlphaChannel, ShaderBundle conversionShader, EglImageFunctions eglImageFunctions);
+    GrallocTexture(const bool& hasAlphaChannel, std::shared_ptr<ShaderBundle> conversionShader, EglImageFunctions eglImageFunctions);
     ~GrallocTexture();
 
     void ensureEmptyTexture(QOpenGLFunctions* gl) const;
@@ -181,7 +182,7 @@ private:
     void awaitUpload() const;
 
     bool m_hasAlphaChannel;
-    ShaderBundle m_shaderCode;
+    std::shared_ptr<ShaderBundle> m_shaderCode;
 
     mutable struct graphic_buffer* m_buffer;
     mutable EGLImageKHR m_image;
